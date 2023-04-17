@@ -165,7 +165,7 @@ Public Class RunnerSession
     End Sub
 
 
-    Public Function OpenAdventure(ByVal sFilename As String, Optional ByVal bSilentError As Boolean = False) As Boolean
+    Public Async Function OpenAdventure(ByVal sFilename As String, Optional ByVal bSilentError As Boolean = False) As Task(Of Boolean)
 
         Adventure = New clsAdventure
 
@@ -234,10 +234,10 @@ Public Class RunnerSession
             UserSession.Map.RecalculateNode(Adventure.Map.FindNode(Adventure.Player.Location.LocationKey))
             UserSession.Map.SelectNode(Adventure.Player.Location.LocationKey)
             fRunner.txtOutput.Clear()
-            Display("<c>" & Adventure.Title & "</c>" & vbCrLf, True)
-            Display(Adventure.Introduction.ToString, True)
+            await DisplayWaiting("<c>" & Adventure.Title & "</c>" & vbCrLf, True)
+            await DisplayWaiting(Adventure.Introduction.ToString, True)
 
-            If Adventure.ShowFirstRoom AndAlso Adventure.htblLocations.ContainsKey(Adventure.Player.Location.LocationKey) Then Display(vbCrLf & pSpace(Adventure.htblLocations(Adventure.Player.Location.LocationKey).ViewLocation), True)
+            If Adventure.ShowFirstRoom AndAlso Adventure.htblLocations.ContainsKey(Adventure.Player.Location.LocationKey) Then await DisplayWaiting(vbCrLf & pSpace(Adventure.htblLocations(Adventure.Player.Location.LocationKey).ViewLocation), True)
 
             For Each e As clsEvent In Adventure.htblEvents.Values
                 Select Case e.WhenStart
@@ -347,6 +347,47 @@ Public Class RunnerSession
 
         bDisplaying = False
     End Sub
+    Public Async Function DisplayWaiting(ByVal sText As String, Optional ByVal bCommit As Boolean = False, Optional ByVal bAllowALR As Boolean = True, Optional ByVal bRecord As Boolean = True) as Task
+
+        bDisplaying = True
+        Dim bAllowPSpace As Boolean = True
+
+        If Adventure IsNot Nothing AndAlso Adventure.dVersion < 5 Then
+            ' ViewRoom function used to always start at beginning of line, so no pspace
+            If sText.StartsWith("%DisplayLocation[") Then bAllowPSpace = False
+        End If
+
+        If Adventure IsNot Nothing AndAlso bAllowALR Then sText = ReplaceALRs(sText)
+        If bAllowPSpace AndAlso sText <> vbCrLf AndAlso sText <> "" Then
+            sOutputText = pSpace(sOutputText) & sText
+        Else
+            sOutputText = sOutputText & sText
+        End If
+
+        If bCommit Then
+            If Not (sText.StartsWith("<c>") AndAlso sText.EndsWith("</c>" & vbCrLf)) Then UnderlineNouns(sOutputText)
+            Await Source2HTMLWaiting(sOutputText)
+            If Glue.IsTranscriptActive() Then
+                Try
+                    Dim stmWriter As New IO.StreamWriter(sTranscriptFile, True)
+                    stmWriter.Write(StripCarats(sOutputText).Replace("Ø", ">"))
+                    stmWriter.Close()
+                Catch exIO As IO.IOException
+                    ErrMsg("Unable to output to transcript: " & exIO.Message)
+                End Try
+            End If
+
+            If bRecord Then
+                While sOutputText.EndsWith(vbCrLf)
+                    sOutputText = sOutputText.Substring(0, sOutputText.Length - 2)
+                End While
+                sTurnOutput &= sOutputText
+            End If
+            sOutputText = ""
+        End If
+
+        bDisplaying = False
+    End Function
 
     Private Sub UnderlineNouns(ByRef sText As String)
         Exit Sub
@@ -3112,7 +3153,8 @@ NextChar2:
 
 
     Friend Sub Restart()
-        OpenAdventure(Adventure.FullPath)
+        ' OpenAdventure is async, so this is risky
+        OpenAdventure(Adventure.FullPath).Wait()
     End Sub
 
 

@@ -172,7 +172,7 @@ namespace FrankenDrift.GlkRunner.AsyncGlk
 
     public class AsyncGlkRunner
     {
-        public static int Main(string[] args)
+        public static async Task<int> Main(string[] args)
         {
             if (args.Length == 0)
             {
@@ -182,7 +182,8 @@ namespace FrankenDrift.GlkRunner.AsyncGlk
 
             AsyncGlk GlkApi = new AsyncGlk();
 
-            var sess = new MainSession(args[^1], GlkApi);
+            var sess = new MainSession(GlkApi);
+            await sess.Start(args[^1]);
             sess.Run();
 
             return 0;

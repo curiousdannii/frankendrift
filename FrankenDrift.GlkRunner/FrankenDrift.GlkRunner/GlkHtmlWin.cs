@@ -191,7 +191,7 @@ namespace FrankenDrift.GlkRunner
         }
 
         // Janky-ass HTML parser, 2nd edition.
-        public async void AppendHTML(string src)
+        public async Task AppendHTML(string src, bool waiting = false)
         {
             if (string.IsNullOrEmpty(src))
                 return;
@@ -301,7 +301,16 @@ namespace FrankenDrift.GlkRunner
                             Clear();
                             break;
                         case "waitkey":
-                            await GetCharInput();
+                            if (waiting) {
+                                await GetCharInput();
+                            }
+                            else {
+                                // Can't (easily) throw here as the caller might not be handling the Task
+                                Console.WriteLine("Cannot handle <waitkey> from non-waiting AppendHTML");
+                                Console.WriteLine(new System.Diagnostics.StackTrace());
+                                AppendHTML("<b>ADRIFT Fatal Error: Cannot handle waitkey from non-waiting AppendHTML</b><br>");
+                                return;
+                            }
                             break;
                     }
                     if (currentToken.StartsWith("font"))
@@ -451,7 +460,12 @@ namespace FrankenDrift.GlkRunner
             {
                 var tmpText = _pendingText;
                 _pendingText = "";
-                AppendHTML(tmpText);
+                if (waiting) {
+                    await AppendHTML(tmpText, true);
+                }
+                else {
+                    AppendHTML(tmpText);
+                }
             }
         }
 

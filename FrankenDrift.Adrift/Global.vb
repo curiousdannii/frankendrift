@@ -479,6 +479,9 @@ Public Module SharedModule
     Public Sub Source2HTML(ByVal sSource As String, ByRef RichText As RichTextBox, ByVal bClearRTB As Boolean, Optional ByVal bDebug As Boolean = False, Optional ByRef sUnprocessedText As String = Nothing)
         Glue.OutputHTML(sSource)
     End Sub
+    Public Async Function Source2HTMLWaiting(ByVal sSource As String) as Task
+        Await Glue.OutputHTMLWaiting(sSource)
+    End Function
 
 
     Private Class WmfStuff

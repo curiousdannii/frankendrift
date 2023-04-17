@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 
 namespace FrankenDrift.Glue
 {
@@ -44,7 +45,9 @@ namespace FrankenDrift.Glue
         public string QueryRestorePath();
         public QueryResult QuerySaveBeforeQuit();
 
+        // Calls to OutputHTML must not contain <wait X> or <waitkey>
         public void OutputHTML(string source);
+        public Task OutputHTMLWaiting(string source);
         // public void ClearOutput();
         public void InitInput();
 

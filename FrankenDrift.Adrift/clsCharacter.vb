@@ -84,6 +84,7 @@ Public Class clsCharacter
                             UserSession.bAutoComplete = False
                             fRunner.SetInput(d.ToString)
                             sLastPosition = Location.LocationKey
+                            ' I think this is a no-op?
                             fRunner.SubmitCommand()
                             sLastPosition = ""
                             UserSession.bAutoComplete = bAutoComplete

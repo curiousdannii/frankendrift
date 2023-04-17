@@ -23,18 +23,24 @@ namespace FrankenDrift.GlkRunner
         private readonly Dictionary<int, SoundChannel> _sndChannels = new();
         private readonly Dictionary<int, string> _recentlyPlayedSounds = new();
 
-        public MainSession(string gameFile, IGlk glk)
+        public MainSession(IGlk glk)
         {
             if (Instance is not null)
                 throw new ApplicationException("Dual MainSessions?");
             Instance = this;
             GlkApi = glk;
+            _soundSupported = GlkApi.glk_gestalt(Gestalt.Sound2, 0) != 0;
+        }
+
+        // The constructor can't be async, so separate out the async stuff here
+        public async Task Start(string gameFile)
+        {
 
             var util = new GlkUtil(GlkApi);
             if (!util._unicodeAvailable)
             {
-                _output = new(glk);
-                _output.AppendHTML("Sorry, can't run with a non-unicode Glk library.\n<waitkey>\n");
+                _output = new(GlkApi);
+                await _output.AppendHTML("Sorry, can't run with a non-unicode Glk library.\n<waitkey>\n", true);
                 Environment.Exit(2);
             }
 
@@ -64,8 +70,7 @@ namespace FrankenDrift.GlkRunner
             Adrift.SharedModule.UserSession = new Adrift.RunnerSession { Map = new GlonkMap(), bShowShortLocations = true };
             for (int i = 1; i <= 8; i++)
                 _sndChannels[i] = GlkApi.glk_schannel_create((uint)i);
-            Adrift.SharedModule.UserSession.OpenAdventure(gameFile);
-            _soundSupported = GlkApi.glk_gestalt(Gestalt.Sound2, 0) != 0;
+            await Adrift.SharedModule.UserSession.OpenAdventure(gameFile);
             // The underlying Runner wants a tick once per second to trigger real-time-based events
             if (GlkApi.glk_gestalt(Gestalt.Timer, 0) != 0)
                 GlkApi.glk_request_timer_events(1000);
@@ -159,6 +164,7 @@ namespace FrankenDrift.GlkRunner
         }
 
         public void OutputHTML(string source) => _output.AppendHTML(source);
+        public async Task OutputHTMLWaiting(string source) => await _output.AppendHTML(source, true);
 
         public string QueryRestorePath()
         {
