@@ -39,7 +39,7 @@ namespace FrankenDrift.GlkRunner
             }
 
             // If playing a blorb file, open it with the Glk library as well
-            if (gameFile.EndsWith(".blorb"))
+            if (RuntimeInformation.ProcessArchitecture != Architecture.Wasm && gameFile.EndsWith(".blorb"))
             {
                 var blorb = File.ReadAllBytes(gameFile);
                 // Blorb files produced by ADRIFT have the wrong file length in the header
@@ -71,11 +71,11 @@ namespace FrankenDrift.GlkRunner
                 GlkApi.glk_request_timer_events(1000);
         }
 
-        public void Run()
+        public async void Run()
         {
             while (true)
             {
-                var cmd = _output.GetLineInput();
+                var cmd = await _output.GetLineInput();
                 SubmitCommand(cmd);
             }
         }
@@ -118,6 +118,9 @@ namespace FrankenDrift.GlkRunner
         public void ErrMsg(string message, Exception ex = null)
         {
             Console.WriteLine("Fatal error: " + message);
+            if (ex is not null) {
+                Console.WriteLine(ex);
+            }
             if (_output is null) {
                 _output = new GlkHtmlWin(GlkApi);
             }
@@ -226,6 +229,9 @@ namespace FrankenDrift.GlkRunner
 
         public void ShowCoverArt(byte[] img)
         {
+            if (_output is null) {
+                _output = new GlkHtmlWin(GlkApi);
+            }
             // we don't need the image data that the interpreter has provided us,
             // we just need to ask Glk to display image no. 1
             _output.DrawImageImmediately(1);

@@ -39,8 +39,6 @@ namespace FrankenDrift.GlkRunner.AsyncGlk
         internal static partial void glk_request_char_event(IntPtr winId);
         [JSImport("glk_request_hyperlink_event", "main.js")]
         internal static partial void glk_request_hyperlink_event(IntPtr winId);
-        [JSImport("glk_request_line_event", "main.js")]
-        internal static partial void glk_request_line_event(IntPtr win, [JSMarshalAs<JSType.MemoryView>] Span<Byte> buf, int initlen);
         [JSImport("glk_request_line_event_uni", "main.js")]
         internal static partial void glk_request_line_event_uni(IntPtr win, [JSMarshalAs<JSType.MemoryView>] Span<Int32> buf, int initlen);
         [JSImport("glk_request_timer_events", "main.js")]
@@ -55,8 +53,6 @@ namespace FrankenDrift.GlkRunner.AsyncGlk
         internal static partial void glk_set_window(IntPtr winId);
         [JSImport("glk_stream_open_file", "main.js")]
         internal static partial IntPtr glk_stream_open_file(IntPtr fileref, int fmode, int rock);
-        [JSImport("glk_stream_open_memory", "main.js")]
-        internal static partial IntPtr glk_stream_open_memory([JSMarshalAs<JSType.MemoryView>] Span<Byte> buf, int mode, int rock);
         [JSImport("glk_stream_set_position", "main.js")]
         internal static partial void glk_stream_set_position(IntPtr stream, int pos, int seekMode);
         [JSImport("glk_stylehint_set", "main.js")]
@@ -125,8 +121,7 @@ namespace FrankenDrift.GlkRunner.AsyncGlk
         public void glk_put_buffer_uni(uint[] s, uint len) => AsyncGlk_imports.glk_put_buffer_uni(new Span<Int32>((int[])(object) s, 0, (int) len));
         public void glk_request_char_event(WindowHandle winId) => AsyncGlk_imports.glk_request_char_event(winId);
         public void glk_request_hyperlink_event(WindowHandle winId) => AsyncGlk_imports.glk_request_hyperlink_event(winId);
-        public unsafe void glk_request_line_event(WindowHandle win, byte* buf, uint maxlen, uint initlen) => AsyncGlk_imports.glk_request_line_event(win, new Span<Byte>(buf, (int) maxlen), (int) initlen);
-        public unsafe void glk_request_line_event_uni(WindowHandle win, uint* buf, uint maxlen, uint initlen) => AsyncGlk_imports.glk_request_line_event_uni(win, new Span<Int32>(buf, (int) maxlen), (int) initlen);
+        public void glk_request_line_event_uni(WindowHandle win, uint[] buf, uint maxlen, uint initlen) => AsyncGlk_imports.glk_request_line_event_uni(win, new Span<Int32>((int[])(object) buf, 0, (int) maxlen), (int) initlen);
         public void glk_request_timer_events(uint millisecs) => AsyncGlk_imports.glk_request_timer_events((int) millisecs);
         public SoundChannel glk_schannel_create(uint rock) => 0;
         public void glk_schannel_destroy(SoundChannel chan) {}
@@ -136,17 +131,10 @@ namespace FrankenDrift.GlkRunner.AsyncGlk
         public void glk_schannel_set_volume(SoundChannel chan, uint vol) {}
         public void glk_schannel_stop(SoundChannel chan) {}
         public void glk_schannel_unpause(SoundChannel chan) {}
-        public void glk_select(ref Event ev)
-        {
-            Task t = AsyncGlk_imports.glk_select();
-            t.Wait(-1);
-            fill_event(ref ev);
-        }
         public void glk_set_hyperlink(uint linkval) => AsyncGlk_imports.glk_set_hyperlink((int) linkval);
         public void glk_set_style(Style s) => AsyncGlk_imports.glk_set_style((int) s);
         public void glk_set_window(WindowHandle winId) => AsyncGlk_imports.glk_set_window(winId);
         public StreamHandle glk_stream_open_file(FileRefHandle fileref, Glk.FileMode fmode, uint rock) => AsyncGlk_imports.glk_stream_open_file(fileref, (int) fmode, (int) rock);
-        public unsafe StreamHandle glk_stream_open_memory(byte* buf, uint buflen, Glk.FileMode mode, uint rock) => AsyncGlk_imports.glk_stream_open_memory(new Span<Byte>(buf, (int) buflen), (int) mode, (int) rock);
         public void glk_stream_set_position(StreamHandle stream, int pos, SeekMode seekMode) => AsyncGlk_imports.glk_stream_set_position(stream, (int) pos, (int) seekMode);
         public void glk_stylehint_set(WinType wintype, Style styl, StyleHint hint, int val) => AsyncGlk_imports.glk_stylehint_set((int) wintype, (int) styl, (int) hint, (int) val);
         public uint glk_style_measure(WindowHandle winid, Style styl, StyleHint hint, ref uint result) => 0;
@@ -173,6 +161,12 @@ namespace FrankenDrift.GlkRunner.AsyncGlk
         public void garglk_set_zcolors(uint fg, uint bg) {}
         public string? glkunix_fileref_get_name(FileRefHandle fileref) => AsyncGlk_imports.glkunix_fileref_get_name(fileref);
 
+        public async Task<Event> GetEvent() {
+            await AsyncGlk_imports.glk_select();
+            Event ev = new() { type = EventType.None };
+            fill_event(ref ev);
+            return ev;
+        }
         public void SetGameName(string game) {}
     }
 

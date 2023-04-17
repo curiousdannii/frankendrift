@@ -115,54 +115,50 @@ namespace FrankenDrift.GlkRunner
             GlkApi.glk_window_clear(glkwin_handle);
         }
 
-        internal unsafe string GetLineInput()
+        internal async Task<string> GetLineInput()
         {
             if (IsWaiting)
                 throw new ConcurrentEventException("Too many input events requested");
             IsWaiting = true;
             const uint capacity = 256;
-            var cmdToBe = new uint[capacity];
-            fixed (uint* buf = cmdToBe)
+            uint[] buf = GC.AllocateArray<uint>((int) capacity, true);
+            GlkApi.glk_request_line_event_uni(glkwin_handle, buf, capacity-1, 0);
+            if (_hyperlinks.Count > 0 && _hyperlinksSupported)
+                GlkApi.glk_request_hyperlink_event(glkwin_handle);
+            while (true)
             {
-                GlkApi.glk_request_line_event_uni(glkwin_handle, buf, capacity-1, 0);
-                if (_hyperlinks.Count > 0 && _hyperlinksSupported)
-                    GlkApi.glk_request_hyperlink_event(glkwin_handle);
-                while (true)
+                Event ev = await GlkApi.GetEvent();
+                if (ev.type == EventType.LineInput && ev.win_handle == glkwin_handle)
                 {
-                    Event ev = new() { type = EventType.None };
-                    GlkApi.glk_select(ref ev);
-                    if (ev.type == EventType.LineInput && ev.win_handle == glkwin_handle)
-                    {
-                        var count = (int) ev.val1;
-                        GlkApi.glk_cancel_hyperlink_event(glkwin_handle);
-                        IsWaiting = false;
-                        //var dec = Encoding.GetEncoding(Encoding.Latin1.CodePage, EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
-                        //return dec.GetString(cmdToBe, 0, count);
-                        var result = new StringBuilder(count);
-                        for (var i = 0; i < count; i++)
-                            result.Append(new Rune(buf[i]).ToString());
-                        return result.ToString();
-                    }
-                    else if (ev.type == EventType.Hyperlink && ev.win_handle == glkwin_handle)
-                    {
-                        var linkId = ev.val1;
-                        Event ev2 = new();
-                        if (_hyperlinks.ContainsKey(linkId))
-                        {
-                            GlkApi.glk_cancel_line_event(glkwin_handle, ref ev2);
-                            IsWaiting = false;
-                            var result = _hyperlinks[linkId];
-                            _hyperlinks.Clear();
-                            FakeInput(result);
-                            return result;
-                        }
-                    }
-                    else MainSession.Instance!.ProcessEvent(ev);
+                    var count = (int) ev.val1;
+                    GlkApi.glk_cancel_hyperlink_event(glkwin_handle);
+                    IsWaiting = false;
+                    //var dec = Encoding.GetEncoding(Encoding.Latin1.CodePage, EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
+                    //return dec.GetString(cmdToBe, 0, count);
+                    var result = new StringBuilder(count);
+                    for (var i = 0; i < count; i++)
+                        result.Append(new Rune(buf[i]).ToString());
+                    return result.ToString();
                 }
+                else if (ev.type == EventType.Hyperlink && ev.win_handle == glkwin_handle)
+                {
+                    var linkId = ev.val1;
+                    Event ev2 = new();
+                    if (_hyperlinks.ContainsKey(linkId))
+                    {
+                        GlkApi.glk_cancel_line_event(glkwin_handle, ref ev2);
+                        IsWaiting = false;
+                        var result = _hyperlinks[linkId];
+                        _hyperlinks.Clear();
+                        FakeInput(result);
+                        return result;
+                    }
+                }
+                else MainSession.Instance!.ProcessEvent(ev);
             }
         }
 
-        internal uint GetCharInput()
+        internal async Task<uint> GetCharInput()
         {
             if (IsWaiting)
                 throw new ConcurrentEventException("Too many input events requested");
@@ -171,8 +167,7 @@ namespace FrankenDrift.GlkRunner
             GlkApi.glk_request_char_event(glkwin_handle);
             while (true)
             {
-                Event ev = new() { type = EventType.None };
-                GlkApi.glk_select(ref ev);
+                Event ev = await GlkApi.GetEvent();
                 if (ev.type == EventType.CharInput && ev.win_handle == glkwin_handle)
                 {
                     result = ev.val1;
@@ -196,7 +191,7 @@ namespace FrankenDrift.GlkRunner
         }
 
         // Janky-ass HTML parser, 2nd edition.
-        public void AppendHTML(string src)
+        public async void AppendHTML(string src)
         {
             if (string.IsNullOrEmpty(src))
                 return;
@@ -306,7 +301,7 @@ namespace FrankenDrift.GlkRunner
                             Clear();
                             break;
                         case "waitkey":
-                            GetCharInput();
+                            await GetCharInput();
                             break;
                     }
                     if (currentToken.StartsWith("font"))

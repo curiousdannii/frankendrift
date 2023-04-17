@@ -250,8 +250,7 @@ namespace FrankenDrift.GlkRunner.Glk
         void glk_put_buffer_uni(uint[] s, uint len);
         void glk_request_char_event(WindowHandle winId);
         void glk_request_hyperlink_event(WindowHandle winId);
-        unsafe void glk_request_line_event(WindowHandle win, byte* buf, uint maxlen, uint initlen);
-        unsafe void glk_request_line_event_uni(WindowHandle win, uint* buf, uint maxlen, uint initlen);
+        void glk_request_line_event_uni(WindowHandle win, uint[] buf, uint maxlen, uint initlen);
         SoundChannel glk_schannel_create(uint rock);
         void glk_schannel_destroy(SoundChannel chan);
         void glk_schannel_pause(SoundChannel chan);
@@ -260,12 +259,10 @@ namespace FrankenDrift.GlkRunner.Glk
         void glk_schannel_set_volume(SoundChannel chan, uint vol);
         void glk_schannel_stop(SoundChannel chan);
         void glk_schannel_unpause(SoundChannel chan);
-        void glk_select(ref Event ev);
         void glk_set_hyperlink(uint linkval);
         void glk_set_style(Style s);
         void glk_set_window(WindowHandle winId);
         StreamHandle glk_stream_open_file(FileRefHandle fileref, FileMode fmode, uint rock);
-        unsafe StreamHandle glk_stream_open_memory(byte* buf, uint buflen, FileMode mode, uint rock);
         void glk_stream_set_position(StreamHandle stream, int pos, SeekMode seekMode);
         void glk_stylehint_set(WinType wintype, Style styl, StyleHint hint, int val);
         uint glk_style_measure(WindowHandle winid, Style styl, StyleHint hint, ref uint result);
@@ -284,6 +281,7 @@ namespace FrankenDrift.GlkRunner.Glk
         void glk_request_timer_events(uint millisecs);
 
         // And some extra functions we want that could have different implementations
+        Task<Event> GetEvent();
         void SetGameName(string game);
 #pragma warning restore IDE1006 // Naming Styles
     }

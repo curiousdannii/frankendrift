@@ -59,6 +59,7 @@ export class FrankenDrift {
                     },
                 ],
             })
+            //.withVirtualWorkingDirectory('/frankendrift')
             .create()
 
         runtime.setModuleImports('main.js', {
@@ -100,7 +101,6 @@ export class FrankenDrift {
             glk_put_buffer_uni: val => Glk.glk_put_buffer_uni(val._unsafe_create_view()),
             glk_request_char_event: winId => Glk.glk_request_char_event(ids_to_objects[winId]),
             glk_request_hyperlink_event: winId => Glk.glk_request_hyperlink_event(ids_to_objects[winId]),
-            glk_request_line_event: (winId, buf, initlen) => Glk.glk_request_line_event(ids_to_objects[winId], buf._unsafe_create_view(), initlen),
             glk_request_line_event_uni: (winId, buf, initlen) => Glk.glk_request_line_event_uni(ids_to_objects[winId], buf._unsafe_create_view(), initlen),
             glk_request_timer_events: msecs => Glk.glk_request_timer_events(msecs),
             glk_select: async () => {
@@ -118,13 +118,6 @@ export class FrankenDrift {
             glk_stream_open_file: (frefId, fmode, rock) => {
                 const fref = ids_to_objects[frefId]
                 const str = Glk.glk_stream_open_file(fref, fmode, rock)
-                if (str) {
-                    return register_object(str)
-                }
-                return 0
-            },
-            glk_stream_open_memory: (buf, mode, rock) => {
-                const str = Glk.glk_stream_open_memory(buf._unsafe_create_view(), mode, rock)
                 if (str) {
                     return register_object(str)
                 }
