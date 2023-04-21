@@ -62,16 +62,15 @@ Public Class clsCharacter
         End Set
     End Property
 
-
-    Public Sub DoWalk()
-        Static sLastPosition As String = ""
+    Private sLastPosition As String = ""
+    Public Async Function DoWalk() as Task
 
         If WalkTo <> "" Then
             If Location.LocationKey = sLastPosition Then
                 WalkTo = "" ' Something has stopped us moving, so bomb out the walk
-                Exit Sub
+                Exit Function
             End If
-            Dim node As WalkNode = Dijkstra(Location.LocationKey, WalkTo)
+            Dim node As WalkNode = Await Dijkstra(Location.LocationKey, WalkTo)
             If node IsNot Nothing Then
                 While node.iDistance > 1
                     node = node.Previous
@@ -88,7 +87,7 @@ Public Class clsCharacter
                             fRunner.SubmitCommand()
                             sLastPosition = ""
                             UserSession.bAutoComplete = bAutoComplete
-                            Exit Sub
+                            Exit Function
                         End If
                     Next
                 End If
@@ -97,7 +96,7 @@ Public Class clsCharacter
             End If
         End If
 
-    End Sub
+    End Function
 
 
     Private Class WalkNode
@@ -115,7 +114,7 @@ Public Class clsCharacter
 
     ' Adapted from http://en.wikipedia.org/wiki/Dijkstra's_algorithm
     '
-    Private Function Dijkstra(ByVal sFrom As String, ByVal sTo As String) As WalkNode
+    Private Async Function Dijkstra(ByVal sFrom As String, ByVal sTo As String) As Task(of WalkNode)
 
         Dim WalkNodes As New Dictionary(Of String, WalkNode)
         Dim Q As New List(Of WalkNode)
@@ -141,7 +140,8 @@ Public Class clsCharacter
             Q.Remove(u)
 
             For Each d As DirectionsEnum In [Enum].GetValues(GetType(DirectionsEnum))
-                If HasRouteInDirection(d, False, u.Key) Then
+                Dim tup = Await HasRouteInDirection(d, False, u.Key)
+                If tup.result Then
                     Dim sDest As String = Adventure.htblLocations(u.Key).arlDirections(d).LocationKey
                     If Adventure.htblLocations(sDest).SeenBy(Me.Key) Then
                         Dim alt As Integer = u.iDistance + 1
@@ -505,22 +505,22 @@ Public Class clsCharacter
     End Property
 
 
-    Public Sub Move(ByVal ToWhere As String)
+    Public Async Function Move(ByVal ToWhere As String) as Task
 
         If Adventure.htblLocations.ContainsKey(ToWhere) Then
             Dim loc As New clsCharacterLocation(Me)
             loc.ExistWhere = clsCharacterLocation.ExistsWhereEnum.AtLocation
             loc.Key = ToWhere
-            Move(loc)
+            Await Move(loc)
         ElseIf ToWhere = HIDDEN Then
             Dim loc As New clsCharacterLocation(Me)
             loc.ExistWhere = clsCharacterLocation.ExistsWhereEnum.Hidden
             loc.Key = ""
-            Move(loc)
+            Await Move(loc)
         End If
 
-    End Sub
-    Public Sub Move(ByVal ToWhere As clsCharacterLocation)
+    End Function
+    Public Async Function Move(ByVal ToWhere As clsCharacterLocation) as Task
         If Me Is Adventure.Player Then
             For Each t As clsTask In Adventure.Tasks(clsAdventure.TasksListEnum.SystemTasks).Values
                 If t.Repeatable OrElse Not t.Completed Then
@@ -552,7 +552,7 @@ Public Class clsCharacter
         If Adventure.sConversationCharKey <> "" Then
             If Adventure.htblCharacters(Adventure.sConversationCharKey).Location.Key <> Adventure.Player.Location.Key Then
                 If Me.Key = Adventure.Player.Key Then
-                    Dim farewell As clsTopic = UserSession.FindConversationNode(Adventure.htblCharacters(Adventure.sConversationCharKey), clsAction.ConversationEnum.Farewell, "")
+                    Dim farewell As clsTopic = Await UserSession.FindConversationNode(Adventure.htblCharacters(Adventure.sConversationCharKey), clsAction.ConversationEnum.Farewell, "")
                     If farewell IsNot Nothing Then
                         UserSession.Display(farewell.oConversation.ToString)
                     End If
@@ -566,7 +566,7 @@ Public Class clsCharacter
             Adventure.Map.RefreshNode(Adventure.Player.Location.LocationKey)
             UserSession.Map.SelectNode(Adventure.Player.Location.LocationKey)
         End If
-    End Sub
+    End Function
 
 
     Public Property Location() As clsCharacterLocation
@@ -679,32 +679,32 @@ Public Class clsCharacter
 
     Friend dictHasRouteCache As New Generic.Dictionary(Of String, Boolean)
     Friend dictRouteErrors As New Generic.Dictionary(Of String, String)
-    Public Function HasRouteInDirection(ByVal drn As DirectionsEnum, ByVal bIgnoreRestrictions As Boolean, Optional ByVal sFromLocation As String = "", Optional ByRef sErrorMessage As String = "") As Boolean
+    Public Async Function HasRouteInDirection(ByVal drn As DirectionsEnum, ByVal bIgnoreRestrictions As Boolean, Optional ByVal sFromLocation As String = "", Optional ByVal sErrorMessage As String = "") As Task(of (result as Boolean, sErrorMessage as String))
 
         If sFromLocation = "" Then sFromLocation = Location.LocationKey
-        If Not Adventure.htblLocations.ContainsKey(sFromLocation) Then Return False
+        If Not Adventure.htblLocations.ContainsKey(sFromLocation) Then Return (False, sErrorMessage)
 
         Dim d As clsDirection = Adventure.htblLocations(sFromLocation).arlDirections(drn)
         If d.LocationKey <> "" Then
             If bIgnoreRestrictions Then
-                Return True
+                Return (True, sErrorMessage)
             Else
                 Dim bResult As Boolean
                 If dictHasRouteCache.ContainsKey(sFromLocation & drn.ToString) Then
                     bResult = dictHasRouteCache(sFromLocation & drn.ToString)
                     If Not bResult Then sErrorMessage = dictRouteErrors(sFromLocation & drn.ToString)
-                    Return bResult
+                    Return (bResult, sErrorMessage)
                 End If
                 ' evaluate direction restrictions                    
-                bResult = UserSession.PassRestrictions(d.Restrictions)
+                bResult = Await UserSession.PassRestrictions(d.Restrictions)
                 If Not bResult Then sErrorMessage = UserSession.sRestrictionText
                 dictHasRouteCache.Add(sFromLocation & drn.ToString, bResult)
                 dictRouteErrors.Add(sFromLocation & drn.ToString, sErrorMessage)
                 If Not bResult Then d.bEverBeenBlocked = True
-                Return bResult
+                Return (bResult, sErrorMessage)
             End If
         Else
-            Return False
+            Return (False, sErrorMessage)
         End If
 
     End Function
@@ -1028,12 +1028,13 @@ Public Class clsCharacter
         End Get
     End Property
 
-    Public Function ListExits(Optional ByVal sFromLocation As String = "", Optional ByRef iExitCount As Integer = 0) As String
+    Public Async Function ListExits(Optional ByVal sFromLocation As String = "", Optional ByVal iExitCount As Integer = 0) As Task(of (result as String, iExitCount as Integer))
         Dim sExits As String = ""
 
         If sFromLocation = "" Then sFromLocation = Adventure.Player.Location.LocationKey
         For d As DirectionsEnum = DirectionsEnum.North To DirectionsEnum.NorthWest ' Adventure.iCompassPoints
-            If Me.HasRouteInDirection(d, False, sFromLocation) Then
+            Dim tup = Await Me.HasRouteInDirection(d, False, sFromLocation)
+            If tup.result Then
                 sExits &= DirectionName(d) & ", "
                 iExitCount += 1
             End If
@@ -1047,7 +1048,7 @@ Public Class clsCharacter
 
         If sExits = "" Then sExits = "nowhere"
 
-        Return LCase(sExits)
+        Return (LCase(sExits), iExitCount)
     End Function
 
     Friend Overrides ReadOnly Property AllDescriptions() As Generic.List(Of SharedModule.Description)
@@ -1345,22 +1346,18 @@ Public Class clsWalk
         End Get
     End Property
 
+    Public Function TimerToEndOfWalk() As Integer
+        Return iTimerToEndOfWalk
+    End Function
+    Public Async Function SetTimerToEndOfWalk(ByVal value As Integer) as Task
+        Dim iStartValue As Integer = iTimerToEndOfWalk
+        iTimerToEndOfWalk = value
 
-    Public Property TimerToEndOfWalk() As Integer
-        Get
-            Return iTimerToEndOfWalk
-        End Get
-        Set(ByVal value As Integer)
-            Dim iStartValue As Integer = iTimerToEndOfWalk
-            iTimerToEndOfWalk = value
-
-            ' If we've reached the end of the timer
-            If Status = StatusEnum.Running AndAlso iTimerToEndOfWalk = 0 Then
-                lStop(True, True)
-            End If
-
-        End Set
-    End Property
+        ' If we've reached the end of the timer
+        If Status = StatusEnum.Running AndAlso iTimerToEndOfWalk = 0 Then
+            Await lStop(True, True)
+        End If
+    End Function
 
     Private LastSubWalk As SubWalk
     Private ReadOnly Property TimerFromLastSubWalk() As Integer
@@ -1370,15 +1367,15 @@ Public Class clsWalk
     End Property
     Private ReadOnly Property TimerFromStartOfWalk() As Integer
         Get
-            Return Length - TimerToEndOfWalk '+ 1
+            Return Length - TimerToEndOfWalk() '+ 1
         End Get
     End Property
 
 
     Public bJustStarted As Boolean = False
-    Public Sub Start(Optional ByVal bForce As Boolean = False)
+    Public Async Function Start(Optional ByVal bForce As Boolean = False) as Task
         If bForce Then
-            lStart()
+            Await lStart()
         Else
             If NextCommand = Command.Stop Then
                 NextCommand = Command.Restart
@@ -1386,24 +1383,24 @@ Public Class clsWalk
                 NextCommand = Command.Start
             End If
         End If
-    End Sub
-    Public Sub lStart(Optional ByVal bRestart As Boolean = False)
+    End Function
+    Public Async Function lStart(Optional ByVal bRestart As Boolean = False) as Task
         If Status = StatusEnum.NotYetStarted OrElse Status = StatusEnum.Finished OrElse (Status = StatusEnum.Running AndAlso bRestart) Then
             If Not bRestart Then UserSession.DebugPrint(ItemEnum.Character, sKey, DebugDetailLevelEnum.Low, "Starting walk " & Description)
             Status = StatusEnum.Running
             ResetLength()
-            TimerToEndOfWalk = Length
+            Await SetTimerToEndOfWalk(Length)
 
             If TimerFromStartOfWalk = 0 Then
-                DoAnySteps()
-                DoAnySubWalks() ' To run 'after 0 turns' subevents
+                Await DoAnySteps()
+                Await DoAnySubWalks() ' To run 'after 0 turns' subevents
             End If
 
             bJustStarted = True
         Else
             UserSession.DebugPrint(ItemEnum.Character, sKey, DebugDetailLevelEnum.Error, "Can't Start a Walk that isn't waiting!")
         End If
-    End Sub
+    End Function
 
 
     Public Sub Pause()
@@ -1437,14 +1434,14 @@ Public Class clsWalk
     Public Sub [Stop]()
         NextCommand = Command.Stop
     End Sub
-    Public Sub lStop(Optional ByVal bRunSubEvents As Boolean = False, Optional ByVal bReachedEnd As Boolean = False)
+    Public Async Function lStop(Optional ByVal bRunSubEvents As Boolean = False, Optional ByVal bReachedEnd As Boolean = False) As Task
 
-        If bRunSubEvents Then DoAnySubWalks()
+        If bRunSubEvents Then Await DoAnySubWalks()
         Status = StatusEnum.Finished
-        If Me.bLoop AndAlso TimerToEndOfWalk = 0 AndAlso bReachedEnd Then
+        If Me.bLoop AndAlso TimerToEndOfWalk() = 0 AndAlso bReachedEnd Then
             If Length > 0 Then ' Only restart if walk comes to and end and it is set to loop - not if it is terminated by task change
                 UserSession.DebugPrint(ItemEnum.Character, sKey, DebugDetailLevelEnum.Low, "Restarting walk " & Description)
-                lStart(True)
+                Await lStart(True)
             Else
                 UserSession.DebugPrint(ItemEnum.Event, sKey, DebugDetailLevelEnum.Low, "Not restarting walk " & Description & " otherwise we'd get in an infinite loop as zero length.")
             End If
@@ -1452,22 +1449,22 @@ Public Class clsWalk
             UserSession.DebugPrint(ItemEnum.Character, sKey, DebugDetailLevelEnum.Low, "Finishing walk " & Description)
         End If
 
-    End Sub
+    End Function
 
 
-    Public Sub IncrementTimer()
+    Public Async Function IncrementTimer() as Task
         If NextCommand <> Command.Nothing Then
             Select Case NextCommand
                 Case Command.Start
-                    lStart()
+                    Await lStart()
                 Case Command.Stop
-                    lStop()
+                    Await lStop()
                 Case Command.Pause
                     lPause()
                 Case Command.Resume
                     lResume()
                 Case Command.Restart
-                    lStart(True)
+                    Await lStart(True)
             End Select
             NextCommand = Command.Nothing
             sTriggeringTask = ""
@@ -1479,22 +1476,22 @@ Public Class clsWalk
         Select Case Status
             Case StatusEnum.NotYetStarted
             Case StatusEnum.Running
-                If Not bJustStarted Then TimerToEndOfWalk -= 1
+                If Not bJustStarted Then Await SetTimerToEndOfWalk(TimerToEndOfWalk() - 1)
             Case StatusEnum.Paused
             Case StatusEnum.Finished
         End Select
 
         If Not bJustStarted Then
-            DoAnySteps()
-            DoAnySubWalks()
+            Await DoAnySteps()
+            Await DoAnySubWalks()
         End If
 
         bJustStarted = False
 
-    End Sub
+    End Function
 
 
-    Public Sub DoAnySteps()
+    Public Async Function DoAnySteps() as Task
         If Status = StatusEnum.Running Then
             Dim iStepLength As Integer = 0
             For Each [step] As clsStep In arlSteps
@@ -1583,7 +1580,7 @@ Public Class clsWalk
                                 End If
                             End If
 
-                            .Move(sDestination)
+                            Await .Move(sDestination)
                         End With
                     End If
                 End If
@@ -1591,10 +1588,10 @@ Public Class clsWalk
             Next
         End If
 
-    End Sub
+    End Function
 
 
-    Public Sub DoAnySubWalks()
+    Public Async Function DoAnySubWalks() as Task
 
         Select Case Status
             Case StatusEnum.Running
@@ -1610,7 +1607,7 @@ Public Class clsWalk
                                 If (LastSubWalk Is Nothing AndAlso iIndex = 0) OrElse (iIndex > 0 AndAlso LastSubWalk Is SubWalks(iIndex - 1)) Then bRunSubWalk = True
                             End If
                         Case SubWalk.WhenEnum.BeforeEndOfWalk
-                            If TimerToEndOfWalk = sw.ftTurns.Value Then bRunSubWalk = True
+                            If TimerToEndOfWalk() = sw.ftTurns.Value Then bRunSubWalk = True
                         Case SubWalk.WhenEnum.ComesAcross
                             Dim bPrevSameLocationAsChar As Boolean = sw.bSameLocationAsChar
                             sw.bSameLocationAsChar = (Adventure.htblCharacters(sKey).Location.LocationKey = Adventure.Player.Location.LocationKey)
@@ -1627,7 +1624,7 @@ Public Class clsWalk
                             Case SubWalk.WhatEnum.ExecuteTask
                                 If Adventure.htblTasks.ContainsKey(sw.sKey2) Then
                                     UserSession.DebugPrint(ItemEnum.Character, sKey, DebugDetailLevelEnum.Medium, "Walk '" & Description & "' attempting to execute task '" & Adventure.htblTasks(sw.sKey2).Description & "'")
-                                    UserSession.AttemptToExecuteTask(sw.sKey2, True)
+                                    Await UserSession.AttemptToExecuteTask(sw.sKey2, True)
                                 End If
                             Case SubWalk.WhatEnum.UnsetTask
                                 UserSession.DebugPrint(ItemEnum.Character, sKey, DebugDetailLevelEnum.Medium, "Walk '" & Description & "' unsetting task '" & Adventure.htblTasks(sw.sKey2).Description & "'")
@@ -1640,7 +1637,7 @@ Public Class clsWalk
                 Next
         End Select
 
-    End Sub
+    End Function
 
 End Class
 

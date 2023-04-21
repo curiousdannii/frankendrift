@@ -81,22 +81,22 @@ namespace FrankenDrift.GlkRunner
             while (true)
             {
                 var cmd = await _output.GetLineInput();
-                SubmitCommand(cmd);
+                await SubmitCommand(cmd);
             }
         }
 
-        internal void ProcessEvent(Event ev)
+        internal async Task ProcessEvent(Event ev)
         {
             switch (ev.type)
             {
                 case EventType.LineInput:
-                    SubmitCommand();
+                    await SubmitCommand();
                     break;
                 case EventType.Timer:
                     // For what little good it does us -- the output window will be tied up waiting for input,
                     // so any text that gets output won't be seen until the user has sent off the command they
                     // are currently editing. But this will still cause anything other than text output to happen.
-                    Adrift.SharedModule.UserSession.TimeBasedStuff();
+                    await Adrift.SharedModule.UserSession.TimeBasedStuff();
                     break;
                 default:
                     break;
@@ -253,7 +253,7 @@ namespace FrankenDrift.GlkRunner
             // not sure what should go here
         }
 
-        internal void SubmitCommand(string cmd)
+        internal async Task SubmitCommand(string cmd)
         {
             cmd = cmd.Trim(' ');
             if (cmd == "!dumpstyles")
@@ -261,7 +261,7 @@ namespace FrankenDrift.GlkRunner
                 _output!.DumpCurrentStyleInfo();
                 return;
             }
-            Adrift.SharedModule.UserSession.Process(cmd);
+            await Adrift.SharedModule.UserSession.Process(cmd);
             Adrift.SharedModule.Adventure.Turns += 1;
         }
 

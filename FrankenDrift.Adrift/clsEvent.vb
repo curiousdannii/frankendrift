@@ -154,26 +154,24 @@ Public Class clsEvent
     End Function
 
 
-    Public Property TimerToEndOfEvent() As Integer
-        Get
-            Return iTimerToEndOfEvent
-        End Get
-        Set(ByVal value As Integer)
-            Dim iStartValue As Integer = iTimerToEndOfEvent
-            iTimerToEndOfEvent = value
+    Public Function TimerToEndOfEvent() as Integer
+        Return iTimerToEndOfEvent
+    End Function
+    Public Async Function SetTimerToEndOfEvent(ByVal value As Integer) As Task
+        Dim iStartValue As Integer = iTimerToEndOfEvent
+        iTimerToEndOfEvent = value
 
-            ' If the timer has ticked down and we're ready to start
-            If Status = StatusEnum.CountingDownToStart AndAlso TimerFromStartOfEvent = 0 Then
-                Start(True)
-            End If
+        ' If the timer has ticked down and we're ready to start
+        If Status = StatusEnum.CountingDownToStart AndAlso TimerFromStartOfEvent = 0 Then
+            ' TODO!
+            Await Start(True)
+        End If
 
-            ' If we've reached the end of the timer
-            If Status = StatusEnum.Running AndAlso iTimerToEndOfEvent = 0 Then
-                lStop(True)
-            End If
-
-        End Set
-    End Property
+        ' If we've reached the end of the timer
+        If Status = StatusEnum.Running AndAlso iTimerToEndOfEvent = 0 Then
+            Await lStop(True)
+        End If
+    End Function
 
     Friend LastSubEvent As SubEvent
     Private ReadOnly Property TimerFromLastSubEvent() As Integer
@@ -183,7 +181,7 @@ Public Class clsEvent
     End Property
     Friend ReadOnly Property TimerFromStartOfEvent() As Integer
         Get
-            Return Length.Value - TimerToEndOfEvent ' + 1
+            Return Length.Value - TimerToEndOfEvent() ' + 1
         End Get
     End Property
 
@@ -192,14 +190,14 @@ Public Class clsEvent
 
 
     Public bJustStarted As Boolean = False
-    Public Sub Start(Optional ByVal bForce As Boolean = False)
+    Public Async Function Start(Optional ByVal bForce As Boolean = False) As Task
         If bForce OrElse UserSession.bEventsRunning Then
-            lStart()
+            Await lStart()
         Else
             NextCommand = Command.Start
         End If
-    End Sub
-    Private Sub lStart(Optional ByVal bRestart As Boolean = False)
+    End Function
+    Private Async Function lStart(Optional ByVal bRestart As Boolean = False) As Task
         If Status = StatusEnum.NotYetStarted OrElse Status = StatusEnum.CountingDownToStart OrElse Status = StatusEnum.Finished OrElse (Status = StatusEnum.Running AndAlso bRestart) Then
             If Not bRestart Then UserSession.DebugPrint(ItemEnum.Event, Me.Key, DebugDetailLevelEnum.Low, "Starting event " & Description)
             Status = StatusEnum.Running
@@ -227,8 +225,8 @@ Public Class clsEvent
             ' WHAT TO DO HERE?
             ' If it's length 0, we need to run our start actions
             ' if it's length 2 we don't want it being set to 1 immediately from the incrementtimer
-            TimerToEndOfEvent = Length.Value
-            If TimerFromStartOfEvent = 0 Then DoAnySubEvents() ' To run 'after 0 turns' subevents
+            Await SetTimerToEndOfEvent(Length.Value)
+            If TimerFromStartOfEvent = 0 Then Await DoAnySubEvents() ' To run 'after 0 turns' subevents
 
             If WhenStart = WhenStartEnum.Immediately Then WhenStart = WhenStartEnum.BetweenXandYTurns ' So we get 'after 0 turns' on any repeats
             bJustStarted = True
@@ -236,7 +234,7 @@ Public Class clsEvent
             'Throw New Exception("Can't Start an Event that isn't waiting!")
             UserSession.DebugPrint(ItemEnum.Event, Me.Key, DebugDetailLevelEnum.Error, "Can't Start an Event that isn't waiting!")
         End If
-    End Sub
+    End Function
 
 
     Public Sub Pause()
@@ -280,27 +278,27 @@ Public Class clsEvent
     End Sub
 
 
-    Public Sub [Stop]()
+    Public Async Function [Stop]() As Task
         ' If an event runs a task and that task starts/stops an event, do it immediately
-        If UserSession.bEventsRunning Then lStop() Else NextCommand = Command.Stop
-    End Sub
-    Private Sub lStop(Optional ByVal bRunSubEvents As Boolean = False)
+        If UserSession.bEventsRunning Then Await lStop() Else NextCommand = Command.Stop
+    End Function
+    Private Async Function lStop(Optional ByVal bRunSubEvents As Boolean = False) As Task
 
-        If bRunSubEvents Then DoAnySubEvents()
-        If Status = StatusEnum.Paused Then Exit Sub
+        If bRunSubEvents Then Await DoAnySubEvents()
+        If Status = StatusEnum.Paused Then Exit Function
         Status = StatusEnum.Finished
         For Each se As SubEvent In SubEvents
             If se.tmrTrigger IsNot Nothing Then se.tmrTrigger.Stop()
         Next
-        If Repeating AndAlso TimerToEndOfEvent = 0 Then
+        If Repeating AndAlso TimerToEndOfEvent() = 0 Then
             If Length.Value > 0 Then
                 UserSession.DebugPrint(ItemEnum.Event, Me.Key, DebugDetailLevelEnum.Low, "Restarting event " & Description)
                 If RepeatCountdown Then
                     Status = clsEvent.StatusEnum.CountingDownToStart
                     StartDelay.Reset()
-                    TimerToEndOfEvent = StartDelay.Value + Length.Value
+                    Await SetTimerToEndOfEvent(StartDelay.Value + Length.Value)
                 Else
-                    lStart(True) ' Make sure we don't get ourselves in a loop for zero length events
+                    Await lStart(True) ' Make sure we don't get ourselves in a loop for zero length events
                 End If
             Else
                 UserSession.DebugPrint(ItemEnum.Event, Me.Key, DebugDetailLevelEnum.Low, "Not restarting event " & Description & " otherwise we'd get in an infinite loop as zero length.")
@@ -309,17 +307,17 @@ Public Class clsEvent
             UserSession.DebugPrint(ItemEnum.Event, Me.Key, DebugDetailLevelEnum.Low, "Finishing event " & Description)
         End If
 
-    End Sub
+    End Function
 
 
-    Public Sub IncrementTimer()
+    Public Async Function IncrementTimer() As Task
 
         If NextCommand <> Command.Nothing Then
             Select Case NextCommand
                 Case Command.Start
-                    lStart()
+                    Await lStart()
                 Case Command.Stop
-                    lStop()
+                    Await lStop()
                 Case Command.Pause
                     lPause()
                 Case Command.Resume
@@ -335,20 +333,20 @@ Public Class clsEvent
         Select Case Status
             Case StatusEnum.NotYetStarted
             Case StatusEnum.CountingDownToStart
-                TimerToEndOfEvent -= 1
+                Await SetTimerToEndOfEvent(TimerToEndOfEvent() - 1)
             Case StatusEnum.Running
-                If Not bJustStarted Then TimerToEndOfEvent -= 1
+                If Not bJustStarted Then Await SetTimerToEndOfEvent(TimerToEndOfEvent() - 1)
             Case StatusEnum.Paused
             Case StatusEnum.Finished
         End Select
 
-        If Not bJustStarted Then DoAnySubEvents()
+        If Not bJustStarted Then Await DoAnySubEvents()
 
         bJustStarted = False
 
-    End Sub
+    End Function
 
-    Friend Sub DoAnySubEvents()
+    Friend Async Function DoAnySubEvents() As Task
 
         Select Case Status
             Case StatusEnum.Running
@@ -365,20 +363,20 @@ Public Class clsEvent
                                     If (LastSubEvent Is Nothing AndAlso iIndex = 0) OrElse (iIndex > 0 AndAlso LastSubEvent Is SubEvents(iIndex - 1)) Then bRunSubEvent = True
                                 End If
                             Case SubEvent.WhenEnum.BeforeEndOfEvent
-                                If TimerToEndOfEvent = se.ftTurns.Value Then bRunSubEvent = True
+                                If TimerToEndOfEvent() = se.ftTurns.Value Then bRunSubEvent = True
                         End Select
 
-                        If bRunSubEvent Then RunSubEvent(se)
+                        If bRunSubEvent Then Await RunSubEvent(se)
 
                     End If
                     iIndex += 1
                 Next
         End Select
 
-    End Sub
+    End Function
 
 
-    Public Sub RunSubEvent(ByVal se As SubEvent)
+    Public Async Function RunSubEvent(ByVal se As SubEvent) As Task
 
         Select Case se.eWhat
             Case SubEvent.WhatEnum.DisplayMessage
@@ -386,7 +384,7 @@ Public Class clsEvent
             Case SubEvent.WhatEnum.ExecuteTask
                 If Adventure.htblTasks.ContainsKey(se.sKey) Then
                     UserSession.DebugPrint(ItemEnum.Event, Key, DebugDetailLevelEnum.Medium, "Event '" & Description & "' attempting to execute task '" & Adventure.htblTasks(se.sKey).Description & "'")
-                    UserSession.AttemptToExecuteTask(se.sKey, True, , , , , , , True)
+                    Await UserSession.AttemptToExecuteTask(se.sKey, True, , , , , , , True)
                 End If
             Case SubEvent.WhatEnum.SetLook
                 ' Push a LookText onto the stack                                
@@ -412,7 +410,7 @@ Public Class clsEvent
                                     .tmrTrigger.Start()
                                     .dtStart = Now
                                 Else
-                                    RunSubEvent(SubEvents(i))
+                                    Await RunSubEvent(SubEvents(i))
                                 End If
                             End If
                         End If
@@ -421,7 +419,7 @@ Public Class clsEvent
                 End If
             End If
         Next
-    End Sub
+    End Function
 
 
     Public Overrides ReadOnly Property CommonName() As String

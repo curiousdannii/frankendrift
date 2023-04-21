@@ -181,7 +181,8 @@ Public Class RunnerSession
         If sFilename.ToLower.EndsWith(".blorb") Then eFileType = FileTypeEnum.Blorb
         If sFilename.ToLower.EndsWith(".exe") Then eFileType = FileTypeEnum.Exe
 
-        If LoadFile(sFilename, eFileType, LoadWhatEnum.All, False, , , , bSilentError) Then
+        Dim tup = Await LoadFile(sFilename, eFileType, LoadWhatEnum.All, False, , , , bSilentError)
+        If tup.result Then
             For eDirection As DirectionsEnum = DirectionsEnum.North To DirectionsEnum.NorthWest
                 Adventure.sDirectionsRE(eDirection) = Adventure.sDirectionsRE(eDirection).ToLower
             Next
@@ -222,7 +223,7 @@ Public Class RunnerSession
                     t.arlCommands(i) = CorrectCommand(t.arlCommands(i))
                 Next
                 If t.TaskType = clsTask.TaskTypeEnum.System AndAlso t.RunImmediately Then
-                    AttemptToExecuteTask(t.Key, True)
+                    Await AttemptToExecuteTask(t.Key, True)
                 End If
             Next
 
@@ -245,9 +246,9 @@ Public Class RunnerSession
                         e.Status = clsEvent.StatusEnum.NotYetStarted
                     Case clsEvent.WhenStartEnum.BetweenXandYTurns
                         e.Status = clsEvent.StatusEnum.CountingDownToStart
-                        e.TimerToEndOfEvent = e.StartDelay.Value + e.Length.Value
+                        Await e.SetTimerToEndOfEvent(e.StartDelay.Value + e.Length.Value)
                     Case clsEvent.WhenStartEnum.Immediately
-                        e.Start(True)
+                        Await e.Start(True)
                 End Select
             Next
 
@@ -258,7 +259,7 @@ Public Class RunnerSession
 
             For Each c As clsCharacter In Adventure.htblCharacters.Values
                 For Each w As clsWalk In c.arlWalks
-                    If w.StartActive Then w.Start(True)
+                    If w.StartActive Then Await w.Start(True)
                 Next
                 For Each w As clsWalk In c.arlWalks
                     w.bJustStarted = False
@@ -280,7 +281,7 @@ Public Class RunnerSession
                 c.htblTopics = htblTopicsNew
             Next
 
-            Display(vbCrLf & vbCrLf, True)
+            Await Display(vbCrLf & vbCrLf, True)
 
             For Each task As clsTask In Adventure.htblTasks.Values
                 ReDim task.NewReferences(task.References.Count - 1)
@@ -291,7 +292,7 @@ Public Class RunnerSession
                 Return False
             End If
 
-            PrepareForNextTurn()
+            Await PrepareForNextTurn()
 
             Return True
         Else
@@ -306,7 +307,7 @@ Public Class RunnerSession
     End Sub
 
     Public bDisplaying As Boolean = False ' In case any output is once only - don't want it to trigger when we're just testing the text
-    Public Sub Display(ByVal sText As String, Optional ByVal bCommit As Boolean = False, Optional ByVal bAllowALR As Boolean = True, Optional ByVal bRecord As Boolean = True)
+    Public Async Function Display(ByVal sText As String, Optional ByVal bCommit As Boolean = False, Optional ByVal bAllowALR As Boolean = True, Optional ByVal bRecord As Boolean = True) as Task
 
         bDisplaying = True
         Dim bAllowPSpace As Boolean = True
@@ -316,7 +317,7 @@ Public Class RunnerSession
             If sText.StartsWith("%DisplayLocation[") Then bAllowPSpace = False
         End If
 
-        If Adventure IsNot Nothing AndAlso bAllowALR Then sText = ReplaceALRs(sText)
+        If Adventure IsNot Nothing AndAlso bAllowALR Then sText = Await ReplaceALRs(sText)
         If bAllowPSpace AndAlso sText <> vbCrLf AndAlso sText <> "" Then
             sOutputText = pSpace(sOutputText) & sText
         Else
@@ -346,7 +347,8 @@ Public Class RunnerSession
         End If
 
         bDisplaying = False
-    End Sub
+    End Function
+    ' TODO: This probably isn't useful now that Display must be async because of ReplaceALRs
     Public Async Function DisplayWaiting(ByVal sText As String, Optional ByVal bCommit As Boolean = False, Optional ByVal bAllowALR As Boolean = True, Optional ByVal bRecord As Boolean = True) as Task
 
         bDisplaying = True
@@ -357,7 +359,7 @@ Public Class RunnerSession
             If sText.StartsWith("%DisplayLocation[") Then bAllowPSpace = False
         End If
 
-        If Adventure IsNot Nothing AndAlso bAllowALR Then sText = ReplaceALRs(sText)
+        If Adventure IsNot Nothing AndAlso bAllowALR Then sText = Await ReplaceALRs(sText)
         If bAllowPSpace AndAlso sText <> vbCrLf AndAlso sText <> "" Then
             sOutputText = pSpace(sOutputText) & sText
         Else
@@ -539,7 +541,7 @@ Public Class RunnerSession
     End Sub
 
 
-    Public Sub Process(ByVal sCommand As String)
+    Public Async Function Process(ByVal sCommand As String) As Task
 
         If Not Adventure Is Nothing Then
             iPreviousOffset = fRunner.txtOutput.TextLength
@@ -555,49 +557,49 @@ Public Class RunnerSession
             End While
             sInput = sCommand
 
-            If EvaluateInput(0, False) = "***SYSTEM***" Then
+            If Await EvaluateInput(0, False) = "***SYSTEM***" Then
                 sOutputText = ""
-                Exit Sub
+                Exit Function
             End If
             bNoDebug = True
 
-            CheckEndOfGame()
-            If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Exit Sub
+            Await CheckEndOfGame()
+            If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Exit Function
 
             iPrepProgress = 0
-            PrepareForNextTurn()
+            Await PrepareForNextTurn()
 
-            Adventure.Player.DoWalk()
+            Await Adventure.Player.DoWalk()
         End If
-    End Sub
+    End Function
 
 
-    Private Sub CheckEndOfGame()
+    Private Async Function CheckEndOfGame() as Task
         If Not Adventure.bDisplayedWinLose Then
             Select Case Adventure.eGameState
                 Case clsAction.EndGameEnum.Win
-                    Display("<center><c><b>*** You have won ***</b></c></center>" & vbCrLf, True)
+                    Await Display("<center><c><b>*** You have won ***</b></c></center>" & vbCrLf, True)
                 Case clsAction.EndGameEnum.Lose
-                    Display("<center><c><b>*** You have lost ***</b></c></center>" & vbCrLf, True)
+                    Await Display("<center><c><b>*** You have lost ***</b></c></center>" & vbCrLf, True)
                 Case clsAction.EndGameEnum.Neutral
                     ' Don't display anything
                 Case clsAction.EndGameEnum.Running
                     ' Continue
             End Select
-            If Adventure.eGameState <> clsAction.EndGameEnum.Running Then States.RecordState()
+            If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Await States.RecordState()
         End If
         If Adventure.eGameState <> clsAction.EndGameEnum.Running Then
             Adventure.Player.WalkTo = ""
             If Not Adventure.bDisplayedWinLose AndAlso Adventure.WinningText.ToString(True) <> "" Then
-                Display(Adventure.WinningText.ToString & vbCrLf)
+                Await Display(Adventure.WinningText.ToString & vbCrLf)
             End If
             If Adventure.MaxScore > 0 AndAlso Not Adventure.bDisplayedWinLose Then
-                Display("In that game you scored " & Adventure.Score & " out of a possible " & Adventure.MaxScore & ", in " & Adventure.Turns & " turns." & vbCrLf & vbCrLf, True)
+                Await Display("In that game you scored " & Adventure.Score & " out of a possible " & Adventure.MaxScore & ", in " & Adventure.Turns & " turns." & vbCrLf & vbCrLf, True)
             End If
-            Display("Would you like to <c>restart</c>, <c>restore</c> a saved game, <c>quit</c> or <c>undo</c> the last command?" & vbCrLf & vbCrLf, True)
+            Await Display("Would you like to <c>restart</c>, <c>restore</c> a saved game, <c>quit</c> or <c>undo</c> the last command?" & vbCrLf & vbCrLf, True)
             Adventure.bDisplayedWinLose = True
         End If
-    End Sub
+    End Function
 
 
     Private Function KeyListsMatch(ByVal salSpecifics As StringArrayList, ByVal salReferences As ArrayList, ByVal bMultiple As Boolean) As Boolean
@@ -661,7 +663,7 @@ Public Class RunnerSession
     ' We may be matching on a different command, in which case Specifics will be
     ' in a different order from the References
     '
-    Private Function RefsMatchSpecifics(ByVal tasChild As clsTask) As Boolean
+    Private Async Function RefsMatchSpecifics(ByVal tasChild As clsTask) As Task(of Boolean)
         Dim aSpecifics() As clsTask.Specific = tasChild.Specifics
         Dim alSpecs As New ArrayList
         Dim salRefs As New StringArrayList
@@ -676,7 +678,7 @@ Public Class RunnerSession
                         If sKey = "" Then ' i.e. match any object/character etc...
                             bKeyFoundInRefs = True
                         Else
-                            If sKey.Contains("%") Then sKey = ReplaceFunctions(sKey)
+                            If sKey.Contains("%") Then sKey = Await ReplaceFunctions(sKey)
 
                             Dim iReference As Integer = iSpec
                             ' TODO - If this is matching on a second command in the task where the refs are the other way around, it fails to match the specifics
@@ -756,12 +758,14 @@ Public Class RunnerSession
     End Sub
 
 
-    Private Function ExecuteSubTasks(ByVal sTaskKey As String, ByVal bCalledFromEvent As Boolean, ByVal bChildTask As Boolean, ByVal InReferences() As clsNewReference, ByVal iRefIndex As Integer, ByVal sReferenceKeys() As String, ByVal sReferenceCommands() As String, ByRef bTaskHasOutputNew As Boolean, ByVal bPassingOnly As Boolean) As Boolean
+    Private Async Function ExecuteSubTasks(ByVal sTaskKey As String, ByVal bCalledFromEvent As Boolean, ByVal bChildTask As Boolean, ByVal InReferences() As clsNewReference, ByVal iRefIndex As Integer, ByVal sReferenceKeys() As String, ByVal sReferenceCommands() As String, ByVal bTaskHasOutputNew As Boolean, ByVal bPassingOnly As Boolean) As Task(of (result as Boolean, bTaskHasOutputNew as Boolean))
         If iRefIndex < InReferences.Length Then
             If InReferences(iRefIndex) Is Nothing OrElse InReferences(iRefIndex).Items Is Nothing OrElse InReferences(iRefIndex).Items.Count = 0 Then
                 sReferenceKeys(iRefIndex) = ""
                 sReferenceCommands(iRefIndex) = ""
-                If ExecuteSubTasks(sTaskKey, bCalledFromEvent, bChildTask, InReferences, iRefIndex + 1, sReferenceKeys, sReferenceCommands, bTaskHasOutputNew, bPassingOnly) Then Return True
+                Dim tup = Await ExecuteSubTasks(sTaskKey, bCalledFromEvent, bChildTask, InReferences, iRefIndex + 1, sReferenceKeys, sReferenceCommands, bTaskHasOutputNew, bPassingOnly)
+                bTaskHasOutputNew = tup.bTaskHasOutputNew
+                If tup.result Then return (True, bTaskHasOutputNew)
             Else
                 For iItem As Integer = 0 To InReferences(iRefIndex).Items.Count - 1
                     If InReferences(iRefIndex).Items(iItem).MatchingPossibilities.Count > 0 Then
@@ -770,13 +774,18 @@ Public Class RunnerSession
                         TODO("Check that this is intended...") ' Assume it's ok to leave this reference key as Nothing as there was no match
                     End If
                     sReferenceCommands(iRefIndex) = InReferences(iRefIndex).Items(iItem).sCommandReference
-                    If ExecuteSubTasks(sTaskKey, bCalledFromEvent, bChildTask, InReferences, iRefIndex + 1, sReferenceKeys, sReferenceCommands, bTaskHasOutputNew, bPassingOnly) Then ExecuteSubTasks = True
+                    Dim tup = Await ExecuteSubTasks(sTaskKey, bCalledFromEvent, bChildTask, InReferences, iRefIndex + 1, sReferenceKeys, sReferenceCommands, bTaskHasOutputNew, bPassingOnly)
+                    bTaskHasOutputNew = tup.bTaskHasOutputNew
+                    If tup.result Then return (True, bTaskHasOutputNew)
                 Next
             End If
         Else
             ' Ok, let's execute 'em
-            If AttemptToExecuteSubTask(sTaskKey, sReferenceKeys, bCalledFromEvent, bChildTask, sReferenceCommands, bTaskHasOutputNew, bPassingOnly) Then Return True
+            Dim tup = Await AttemptToExecuteSubTask(sTaskKey, sReferenceKeys, bCalledFromEvent, bChildTask, sReferenceCommands, bTaskHasOutputNew, bPassingOnly)
+            bTaskHasOutputNew = tup.bTaskHasOutputNew
+            If (tup.result) Then Return (True, bTaskHasOutputNew)
         End If
+        Return (False, bTaskHasOutputNew)
     End Function
 
 
@@ -784,14 +793,14 @@ Public Class RunnerSession
     ' bPassingOnly - Only do anything with the task if it passes.  Means we already have a failing task with output, so don't need another
     ' bAssignSpecificRefs - If we are attempting to run a specific task(e.g. from an event) then set the refs to those defined in the task
     '
-    Public Function AttemptToExecuteTask(ByVal sTaskKey As String, Optional ByVal bCalledFromEvent As Boolean = False, Optional ByVal bSkipRestrictionsTest As Boolean = False, Optional ByVal bChildTask As Boolean = False, Optional ByRef bContinue As Boolean = False, Optional ByRef bTaskHasOutputNew As Boolean = False, Optional ByVal bEvaluateResponses As Boolean = False, Optional bPassingOnly As Boolean = False, Optional bAssignSpecificRefs As Boolean = False) As Boolean
+    Public Async Function AttemptToExecuteTask(ByVal sTaskKey As String, Optional ByVal bCalledFromEvent As Boolean = False, Optional ByVal bSkipRestrictionsTest As Boolean = False, Optional ByVal bChildTask As Boolean = False, Optional ByVal bContinue As Boolean = False, Optional ByVal bTaskHasOutputNew As Boolean = False, Optional ByVal bEvaluateResponses As Boolean = False, Optional bPassingOnly As Boolean = False, Optional bAssignSpecificRefs As Boolean = False) As Task(of (result as Boolean, bContinue as Boolean, bTaskHasOutputNew as Boolean))
         ' E.g. if our task is "get red ball and blue ball from box", then subtasks are
         ' "get red ball from box" and
         ' "get blue ball from box"
 
         Dim task As clsTask = Adventure.htblTasks(sTaskKey)
 
-        If task.Completed AndAlso Not task.Repeatable Then Return False
+        If task.Completed AndAlso Not task.Repeatable Then Return (False, bContinue, bTaskHasOutputNew)
         DebugPrint(ItemEnum.Task, task.Key, DebugDetailLevelEnum.Low, "Attempting to execute task " & task.Description & "...")
 
         Dim htblResponsesPassTemp As OrderedHashTable = Nothing
@@ -838,9 +847,11 @@ Public Class RunnerSession
 
         Dim sReferenceKeys(InReferences.Length - 1) As String
         Dim sReferenceCommands(InReferences.Length - 1) As String
-        bPass = ExecuteSubTasks(sTaskKey, bCalledFromEvent, bChildTask, InReferences, 0, sReferenceKeys, sReferenceCommands, bTaskHasOutputNew, bPassingOnly)
+        Dim tup = Await ExecuteSubTasks(sTaskKey, bCalledFromEvent, bChildTask, InReferences, 0, sReferenceKeys, sReferenceCommands, bTaskHasOutputNew, bPassingOnly)
+        bPass = tup.result
+        bTaskHasOutputNew = tup.bTaskHasOutputNew
 
-        If bPassingOnly AndAlso Not bPass Then Return False
+        If bPassingOnly AndAlso Not bPass Then Return (False, bContinue, bTaskHasOutputNew)
 
         If Not bChildTask OrElse bEvaluateResponses Then
             ' Create htblResponses from everything in htblResponsesPass, plus anything from ResponsesFail that isn't in ResponsesPass
@@ -850,7 +861,7 @@ Public Class RunnerSession
             Next
 
             If htblResponsesPass.Count = 0 AndAlso htblResponsesFail.Count >= 0 AndAlso task.FailOverride.ToString <> "" AndAlso ContainsWord(sInput, "all") Then
-                Display(task.FailOverride.ToString)
+                Await Display(task.FailOverride.ToString)
             Else
 
                 ' Get A, B, C from D
@@ -915,7 +926,7 @@ NextPassMessage:
                     Dim refs As clsNewReference() = CType(htblResponses(sMessage), clsNewReference())
 
                     NewReferences = refs
-                    Display(sMessage)
+                    Await Display(sMessage)
                 Next
 
             End If
@@ -938,7 +949,7 @@ NextPassMessage:
                                     Case EventOrWalkControl.ControlEnum.Resume
                                         w.Resume()
                                     Case EventOrWalkControl.ControlEnum.Start
-                                        w.Start()
+                                        Await w.Start()
                                     Case EventOrWalkControl.ControlEnum.Stop
                                         w.Stop()
                                     Case EventOrWalkControl.ControlEnum.Suspend
@@ -959,9 +970,9 @@ NextPassMessage:
                                 Case EventOrWalkControl.ControlEnum.Resume
                                     e.Resume()
                                 Case EventOrWalkControl.ControlEnum.Start
-                                    e.Start()
+                                    Await e.Start()
                                 Case EventOrWalkControl.ControlEnum.Stop
-                                    e.Stop()
+                                    Await e.Stop()
                                 Case EventOrWalkControl.ControlEnum.Suspend
                                     e.Pause()
                             End Select
@@ -1005,22 +1016,22 @@ NextPassMessage:
 
             If bContinue AndAlso Not bChildTask Then
                 UpdateStatusBar()
-                EvaluateInput(task.Priority + 1, Not bPass AndAlso bTaskHasOutputNew)
+                Await EvaluateInput(task.Priority + 1, Not bPass AndAlso bTaskHasOutputNew)
             End If
         End If
 
         If htblResponsesPassTemp IsNot Nothing Then htblResponsesPass = htblResponsesPassTemp.Clone
         If htblResponsesFailTemp IsNot Nothing Then htblResponsesFail = htblResponsesFailTemp.Clone
 
-        Return bPass
+        Return (bPass, bContinue, bTaskHasOutputNew)
     End Function
 
 
     ' Returns True if the SubTask was completed successfully
-    Public Function AttemptToExecuteSubTask(ByVal sTaskKey As String, ByVal sReferences() As String, ByVal bCalledFromEvent As Boolean, ByVal bChildTask As Boolean, ByVal sReferenceCommands() As String, ByRef bTaskHasOutputNew As Boolean, ByVal bPassingOnly As Boolean) As Boolean
+    Public Async Function AttemptToExecuteSubTask(ByVal sTaskKey As String, ByVal sReferences() As String, ByVal bCalledFromEvent As Boolean, ByVal bChildTask As Boolean, ByVal sReferenceCommands() As String, ByVal bTaskHasOutputNew As Boolean, ByVal bPassingOnly As Boolean) As Task(of (result as Boolean, bTaskHasOutputNew as Boolean))
 
         Try
-            AttemptToExecuteSubTask = False
+            Dim result = False
 
             Dim task As clsTask = Adventure.htblTasks(sTaskKey)
 
@@ -1078,7 +1089,7 @@ NextPassMessage:
             End If
 
             Dim sMessage As String = ""
-            Dim bPass As Boolean = PassRestrictions(task.arlRestrictions, , task)
+            Dim bPass As Boolean = Await PassRestrictions(task.arlRestrictions, , task)
             Dim bOutputMessages As Boolean = False
 
             If bPass Then
@@ -1137,7 +1148,7 @@ NextMessage:
                     End If
                     Dim iMatchCount As Integer = 0
 
-                    If RefsMatchSpecifics(tasChild) Then ' This should remove the ref so it doesn't get processed when we execute the main task
+                    If Await RefsMatchSpecifics(tasChild) Then ' This should remove the ref so it doesn't get processed when we execute the main task
                         DebugPrint(ItemEnum.Task, task.Key, DebugDetailLevelEnum.Medium, "Overriding child task found: " & tasChild.Description)
 
                         Select Case tasChild.SpecificOverrideType
@@ -1165,7 +1176,10 @@ NextMessage:
 
 
                                 Dim bChildTaskHasOutput As Boolean = False
-                                If AttemptToExecuteTask(tasChild.Key, bCalledFromEvent, , True, bContinueExecutingTasks, bChildTaskHasOutput, , bAnyChildHasOutput) Then
+                                Dim tup = Await AttemptToExecuteTask(tasChild.Key, bCalledFromEvent, , True, bContinueExecutingTasks, bChildTaskHasOutput, , bAnyChildHasOutput)
+                                bContinueExecutingTasks = tup.bContinue
+                                bChildTaskHasOutput = tup.bTaskHasOutputNew
+                                If tup.result Then
                                     DebugPrint(ItemEnum.Task, tasChild.Key, DebugDetailLevelEnum.High, "Child task passes")
                                     If tasChild.SpecificOverrideType = clsTask.SpecificOverrideTypeEnum.BeforeActionsOnly OrElse tasChild.SpecificOverrideType = clsTask.SpecificOverrideTypeEnum.BeforeTextAndActions Then
                                         DebugPrint(ItemEnum.Task, tasChild.Key, DebugDetailLevelEnum.Medium, "Execute Parent actions...")
@@ -1177,7 +1191,7 @@ NextMessage:
                                     Else
                                         bShouldParentOutputText = False
                                     End If
-                                    AttemptToExecuteSubTask = True
+                                    result = True
                                 Else
                                     DebugPrint(ItemEnum.Task, tasChild.Key, DebugDetailLevelEnum.High, "Child task fails")
                                     ' Ok, compare failing output vs what it was before - if we have failing output, this takes precedence over parent if set
@@ -1239,13 +1253,13 @@ NextMessage:
                     ' If we do this then drop all gives us: Ok, I drop X.  Ok, I drop Y.  Ok, I drop Z.
                     UserSession.bDisplaying = True
                     bTestingOutput = True ' Ensure any DisplayOnce descriptions aren't marked as displayed, as we'll mark them in final output (Display)
-                    sBeforeActionsMessage = ReplaceExpressions(ReplaceFunctions(sMessage))
+                    sBeforeActionsMessage = ReplaceExpressions(Await ReplaceFunctions(sMessage))
                     bTestingOutput = False
                     If sBeforeActionsMessage = sMessage Then sBeforeActionsMessage = ""
                     UserSession.bDisplaying = False
                     If sBeforeActionsMessage = "" Then
                         ' It is safe to add the response now
-                        If Not task.AggregateOutput Then sMessage = ReplaceExpressions(ReplaceFunctions(sMessage))
+                        If Not task.AggregateOutput Then sMessage = ReplaceExpressions(Await ReplaceFunctions(sMessage))
                         If AddResponse(bOutputMessages, sMessage, sReferences, True) Then bTaskHasOutputNew = True
                     Else
                         ' The response changes with functions, so we can't add yet until we know whether the actions affect the output
@@ -1255,23 +1269,25 @@ NextMessage:
                 End If
 
                 task.Completed = True
-                If bShouldParentExecuteTasks Then ExecuteActions(task, bCalledFromEvent, bTaskHasOutputNew)
+                If bShouldParentExecuteTasks Then
+                    bTaskHasOutputNew = Await ExecuteActions(task, bCalledFromEvent, bTaskHasOutputNew)
+                End If
 
                 If sBeforeActionsMessage <> "" Then
                     ' Check to see if the actions had any effect on the message.  If so, add the replaced message.  If not, add the unreplaced message
                     UserSession.bDisplaying = True
                     bTestingOutput = True
-                    If sBeforeActionsMessage <> ReplaceExpressions(ReplaceFunctions(sMessage)) Then sMessage = sBeforeActionsMessage
+                    If sBeforeActionsMessage <> ReplaceExpressions(Await ReplaceFunctions(sMessage)) Then sMessage = sBeforeActionsMessage
                     bTestingOutput = False
                     UserSession.bDisplaying = False
-                    If Not task.AggregateOutput Then sMessage = ReplaceExpressions(ReplaceFunctions(sMessage))
+                    If Not task.AggregateOutput Then sMessage = ReplaceExpressions(Await ReplaceFunctions(sMessage))
                     If AddResponse(bOutputMessages, sMessage, sReferences, True, iResponsePosition) Then bTaskHasOutputNew = True
                 End If
 
                 If task.eDisplayCompletion = clsTask.BeforeAfterEnum.After AndAlso bShouldParentOutputText Then
                     sMessage = task.CompletionMessage.ToString
                     If sMessage Is Nothing Then sMessage = ""
-                    If Not task.AggregateOutput Then sMessage = ReplaceExpressions(ReplaceFunctions(sMessage))
+                    If Not task.AggregateOutput Then sMessage = ReplaceExpressions(Await ReplaceFunctions(sMessage))
                     DebugPrint(ItemEnum.Task, task.Key, DebugDetailLevelEnum.High, sMessage)
                     If AddResponse(bOutputMessages, sMessage, sReferences, True) Then bTaskHasOutputNew = True
                 End If
@@ -1285,9 +1301,12 @@ NextMessage:
 
                     Dim bChildTaskHasOutput As Boolean = False
                     Dim bContinueExecutingTasks As Boolean = False
-                    If AttemptToExecuteTask(tasChild.Key, bCalledFromEvent, , True, bContinueExecutingTasks, bChildTaskHasOutput) Then
+                    Dim tup = Await AttemptToExecuteTask(tasChild.Key, bCalledFromEvent, , True, bContinueExecutingTasks, bChildTaskHasOutput)
+                    bContinueExecutingTasks = tup.bContinue
+                    bChildTaskHasOutput = tup.bTaskHasOutputNew
+                    If tup.result Then
                         DebugPrint(ItemEnum.Task, tasChild.Key, DebugDetailLevelEnum.High, "Child task passes")
-                        AttemptToExecuteSubTask = True
+                        result = True
                     Else
                         DebugPrint(ItemEnum.Task, tasChild.Key, DebugDetailLevelEnum.High, "Child task fails")
                     End If
@@ -1303,7 +1322,7 @@ NextMessage:
                     End If
                 Next
 
-                AttemptToExecuteSubTask = True
+                result = True
             Else
                 If Not bPassingOnly Then
                     DebugPrint(ItemEnum.Task, task.Key, DebugDetailLevelEnum.Medium, "Failed Restrictions")
@@ -1321,6 +1340,8 @@ NextMessage:
             End If
 
             If AddResponse(bOutputMessages, sMessage, sReferences, bPass) Then bTaskHasOutputNew = True
+
+        Return (result, bTaskHasOutputNew)
 
         Catch ex As Exception
             ErrMsg("Error executing subtask " & sTaskKey, ex)
@@ -1383,7 +1404,8 @@ NextMessage:
 
     End Function
 
-    Public Sub UncompleteTask(ByVal sTaskKey As String)
+    ' Never called!
+    Public Async Function UncompleteTask(ByVal sTaskKey As String) As Task
 
         Adventure.htblTasks(sTaskKey).Completed = False
         For Each c As clsCharacter In Adventure.htblCharacters.Values
@@ -1392,7 +1414,7 @@ NextMessage:
                     If wc.sTaskKey = sTaskKey AndAlso wc.eCompleteOrNot = EventOrWalkControl.CompleteOrNotEnum.UnCompletion Then
                         Select Case wc.eControl
                             Case EventOrWalkControl.ControlEnum.Start
-                                If w.Status = clsEvent.StatusEnum.NotYetStarted Then w.Start()
+                                If w.Status = clsEvent.StatusEnum.NotYetStarted Then Await w.Start()
                             Case EventOrWalkControl.ControlEnum.Stop
                                 If w.Status = clsEvent.StatusEnum.Running Then w.Stop()
                             Case EventOrWalkControl.ControlEnum.Suspend
@@ -1409,9 +1431,9 @@ NextMessage:
                 If ec.sTaskKey = sTaskKey AndAlso ec.eCompleteOrNot = EventOrWalkControl.CompleteOrNotEnum.UnCompletion Then
                     Select Case ec.eControl
                         Case EventOrWalkControl.ControlEnum.Start
-                            If e.Status = clsEvent.StatusEnum.NotYetStarted Then e.Start()
+                            If e.Status = clsEvent.StatusEnum.NotYetStarted Then Await e.Start()
                         Case EventOrWalkControl.ControlEnum.Stop
-                            If e.Status = clsEvent.StatusEnum.Running Then e.Stop()
+                            If e.Status = clsEvent.StatusEnum.Running Then Await e.Stop()
                         Case EventOrWalkControl.ControlEnum.Suspend
                             If e.Status = clsEvent.StatusEnum.Running Then e.Pause()
                         Case EventOrWalkControl.ControlEnum.Resume
@@ -1421,7 +1443,7 @@ NextMessage:
             Next
         Next
 
-    End Sub
+    End Function
 
 
     ' Return the token that the reference we're looking at is 
@@ -1444,7 +1466,7 @@ NextMessage:
 
     End Function
 
-    Private Sub ExecuteSingleAction(ByVal actx As clsAction, ByVal sTaskCommand As String, ByVal task As clsTask, Optional ByVal bCalledFromEvent As Boolean = False, Optional ByRef bTaskHasOutputNew As Boolean = False)
+    Private Async Function ExecuteSingleAction(ByVal actx As clsAction, ByVal sTaskCommand As String, ByVal task As clsTask, Optional ByVal bCalledFromEvent As Boolean = False, Optional ByVal bTaskHasOutputNew As Boolean = False) As Task(of Boolean)
         Try
             Dim act As clsAction = actx.Copy
 
@@ -1459,13 +1481,14 @@ NextMessage:
                                 For iOb As Integer = 0 To .Items.Count - 1
                                     If .Items(iOb).MatchingPossibilities.Count > 0 Then
                                         act.sKey1 = .Items(iOb).MatchingPossibilities(0)
-                                        ExecuteSingleAction(act, sTaskCommand, task, bTaskHasOutputNew)
+                                        ' This used to be pushing bTaskHasOutputNew into bCalledFromEvent which seemed wrong (also below)
+                                        bTaskHasOutputNew = Await ExecuteSingleAction(act, sTaskCommand, task, , bTaskHasOutputNew)
                                     End If
                                 Next
                             End If
                         End With
                     Next
-                    Exit Sub
+                    Exit Function
                 Case "ReferencedDirection", "ReferencedDirection1", "ReferencedDirection2", "ReferencedDirection3", "ReferencedDirection4", "ReferencedDirection5"
                     act.sKey1 = GetReference(act.sKey1)
                 Case "ReferencedCharacter", "ReferencedCharacter1", "ReferencedCharacter2", "ReferencedCharacter3", "ReferencedCharacter4", "ReferencedCharacter5"
@@ -1490,13 +1513,13 @@ NextMessage:
                                 For iOb As Integer = 0 To .Items.Count - 1
                                     If .Items(iOb).MatchingPossibilities.Count > 0 Then
                                         act.sKey2 = .Items(iOb).MatchingPossibilities(0)
-                                        ExecuteSingleAction(act, sTaskCommand, task, bTaskHasOutputNew)
+                                        bTaskHasOutputNew = Await ExecuteSingleAction(act, sTaskCommand, task, , bTaskHasOutputNew)
                                     End If
                                 Next
                             End If
                         End With
                     Next
-                    Exit Sub
+                    Exit Function
                 Case "ReferencedDirection", "ReferencedDirection1", "ReferencedDirection2", "ReferencedDirection3", "ReferencedDirection4", "ReferencedDirection5"
                     act.sKey2 = GetReference(act.sKey2)
                 Case "ReferencedCharacter", "ReferencedCharacter1", "ReferencedCharacter2", "ReferencedCharacter3", "ReferencedCharacter4", "ReferencedCharacter5"
@@ -1533,7 +1556,7 @@ NextMessage:
             End Select
             If bBadKeys Then
                 DebugPrint(ItemEnum.Task, "", DebugDetailLevelEnum.High, "Bad key(s) for action ")
-                Exit Sub
+                Exit Function
             End If
 
             Select Case act.eItem
@@ -1800,7 +1823,8 @@ NextMessage:
                                             Dim sRestrictionTextTemp As String = sRestrictionText
                                             sRestrictionText = ""
 
-                                            If dDetails IsNot Nothing AndAlso ch.HasRouteInDirection(d, False) Then
+                                            Dim tup = Await ch.HasRouteInDirection(d, False)
+                                            If dDetails IsNot Nothing AndAlso tup.result Then
                                                 If Adventure.htblLocations.ContainsKey(dDetails.LocationKey) Then
                                                     dest.Key = dDetails.LocationKey
                                                 ElseIf Adventure.htblGroups.ContainsKey(dDetails.LocationKey) Then
@@ -1809,10 +1833,10 @@ NextMessage:
                                                 dest.ExistWhere = clsCharacterLocation.ExistsWhereEnum.AtLocation
                                             Else
                                                 If sRestrictionText <> "" Then
-                                                    Display(sRestrictionText)
+                                                    Await Display(sRestrictionText)
                                                 Else
                                                     ' Need to grab out the restriction text from the movement task
-                                                    If sRouteErrorTask <> "" Then Display(sRouteErrorTask)
+                                                    If sRouteErrorTask <> "" Then Await Display(sRouteErrorTask)
                                                 End If
                                                 dest = Nothing
                                             End If
@@ -2206,7 +2230,7 @@ NextMessage:
                             End If
                         End If
                         If var.Key <> "Score" OrElse (task IsNot Nothing AndAlso Not task.Scored) Then
-                            var.SetToExpression(sExpr, iIndex)
+                            Await var.SetToExpression(sExpr, iIndex)
                             If var.Key = "Score" Then
                                 task.Scored = True
                                 Adventure.Score = var.IntValue
@@ -2214,7 +2238,7 @@ NextMessage:
                         End If
                     Else
                         For iLoop As Integer = act.IntValue To CInt(act.sKey2)
-                            var.SetToExpression(sExpr, iLoop)
+                            Await var.SetToExpression(sExpr, iLoop)
                         Next
                     End If
 
@@ -2329,7 +2353,7 @@ NextMessage:
                                         UserDefinedRef.sParentTask = tas2X.Key
 
                                         ' Now work out, e.g. %ParentOf[%objects%]% ...
-                                        Dim sFunctionRef As String = ReplaceFunctions(sParam)
+                                        Dim sFunctionRef As String = Await ReplaceFunctions(sParam)
                                         If sFunctionRef.ToLower = "%loop%" Then sFunctionRef = iLoop.ToString
 
                                         If Not sFunctionRef.Contains("***") Then
@@ -2368,7 +2392,8 @@ NextMessage:
                             ' Re the above, a reason why would be good.  Means later we don't do the continue? check
                             Dim bSubTaskHasOutput As Boolean = False
                             ' Did have EvaluateResponses = True, but we need to evaluate at the end in case we are inserting responses before ones in actions
-                            AttemptToExecuteTask(act.sKey1, bCalledFromEvent, , True, , bSubTaskHasOutput, False) 'True)
+                            Dim tup = Await AttemptToExecuteTask(act.sKey1, bCalledFromEvent, , True, , bSubTaskHasOutput, False)
+                            bSubTaskHasOutput = tup.bTaskHasOutputNew
                             If bSubTaskHasOutput Then bTaskHasOutputNew = True
                             NewReferences = oExistingRefs
                         Else
@@ -2385,7 +2410,7 @@ NextMessage:
                                                         Case EventOrWalkControl.ControlEnum.Resume
                                                             If w.Status = clsWalk.StatusEnum.Paused Then w.Resume()
                                                         Case EventOrWalkControl.ControlEnum.Start
-                                                            If w.Status <> clsWalk.StatusEnum.Running Then w.Start()
+                                                            If w.Status <> clsWalk.StatusEnum.Running Then Await w.Start()
                                                         Case EventOrWalkControl.ControlEnum.Stop
                                                             If w.Status = clsWalk.StatusEnum.Running Then w.Stop()
                                                         Case EventOrWalkControl.ControlEnum.Suspend
@@ -2402,9 +2427,9 @@ NextMessage:
                                                     Case EventOrWalkControl.ControlEnum.Resume
                                                         If e.Status = clsWalk.StatusEnum.Paused Then e.Resume()
                                                     Case EventOrWalkControl.ControlEnum.Start
-                                                        If e.Status <> clsWalk.StatusEnum.Running Then e.Start()
+                                                        If e.Status <> clsWalk.StatusEnum.Running Then Await e.Start()
                                                     Case EventOrWalkControl.ControlEnum.Stop
-                                                        If e.Status = clsWalk.StatusEnum.Running Then e.Stop()
+                                                        If e.Status = clsWalk.StatusEnum.Running Then Await e.Stop()
                                                     Case EventOrWalkControl.ControlEnum.Suspend
                                                         If e.Status = clsWalk.StatusEnum.Running Then e.Pause()
                                                 End Select
@@ -2424,11 +2449,11 @@ NextMessage:
                         Dim refs As clsNewReference() = CType(htblResponsesPass(sMessage), clsNewReference())
 
                         NewReferences = refs
-                        Display(sMessage)
+                        Await Display(sMessage)
                     Next
                     htblResponsesPass.Clear()
                     For i As Integer = 0 To EvaluateExpression(act.StringValue, True) - 1
-                        TurnBasedStuff()
+                        Await TurnBasedStuff()
                     Next
                     htblResponsesPass.Clear()
 
@@ -2442,25 +2467,27 @@ NextMessage:
                         Case clsAction.ConversationEnum.LeaveConversation
                             If Adventure.sConversationCharKey = act.sKey1 Then Adventure.sConversationCharKey = ""
                         Case Else
-                            ExecuteConversation(act.sKey1, act.eConversation, act.StringValue, bTaskHasOutputNew)
+                            bTaskHasOutputNew = Await ExecuteConversation(act.sKey1, act.eConversation, act.StringValue, bTaskHasOutputNew)
                             'bTaskHasOutput = True
                     End Select
 
             End Select
 
+        Return bTaskHasOutputNew
+
         Catch ex As Exception
             ErrMsg("Error executing action " & actx.Summary, ex)
         End Try
 
-    End Sub
+    End Function
 
-    Private Sub ExecuteConversation(ByVal sCharKey As String, ByVal ConvType As clsAction.ConversationEnum, ByVal sCommandOrSubject As String, ByRef bTaskHasOutputNew As Boolean)
+    Private Async Function ExecuteConversation(ByVal sCharKey As String, ByVal ConvType As clsAction.ConversationEnum, ByVal sCommandOrSubject As String, ByVal bTaskHasOutputNew As Boolean) As Task(of Boolean)
 
         DebugPrint(ItemEnum.Character, sCharKey, DebugDetailLevelEnum.Medium, "Execute Conversation " & ConvType.ToString & ": " & sCommandOrSubject)
 
         ' If currently in a conversation with a different character, search for an Implicit Farewell for other char
         If Adventure.sConversationCharKey <> "" AndAlso Adventure.sConversationCharKey <> sCharKey Then
-            Dim farewell As clsTopic = FindConversationNode(Adventure.htblCharacters(Adventure.sConversationCharKey), ConvType, "")
+            Dim farewell As clsTopic = Await FindConversationNode(Adventure.htblCharacters(Adventure.sConversationCharKey), ConvType, "")
             If farewell IsNot Nothing Then
                 If AddResponse(False, farewell.oConversation.ToString, New String() {}, True) Then bTaskHasOutputNew = True
             End If
@@ -2474,16 +2501,18 @@ NextMessage:
         ' If not currently in conversation and ConvType != Intro, then search for an Implicit Intro for that char
         If Adventure.sConversationCharKey = "" Then ' AndAlso ConvType <> clsAction.ConversationEnum.Greet Then     
             ' Try to find an explicit intro
-            Dim intro As clsTopic = FindConversationNode(ConvChar, ConvType Or clsAction.ConversationEnum.Greet, sCommandOrSubject)
+            Dim intro As clsTopic = Await FindConversationNode(ConvChar, ConvType Or clsAction.ConversationEnum.Greet, sCommandOrSubject)
             ' If not, look for an implicit one
-            If intro Is Nothing Then intro = FindConversationNode(ConvChar, clsAction.ConversationEnum.Greet, "")
+            If intro Is Nothing Then intro = Await FindConversationNode(ConvChar, clsAction.ConversationEnum.Greet, "")
             If intro IsNot Nothing Then
                 If AddResponse(False, intro.oConversation.ToString, New String() {}, True) Then bTaskHasOutputNew = True
                 Adventure.sConversationNode = intro.Key
                 If intro.bAsk OrElse intro.bTell OrElse intro.bCommand Then ' We matched an explicit intro, so no need to look further
                     Adventure.sConversationCharKey = sCharKey
-                    If intro.arlActions.Count > 0 Then ExecuteActions(intro.arlActions, bTaskHasOutputNew)
-                    Exit Sub
+                    If intro.arlActions.Count > 0 Then
+                        bTaskHasOutputNew = Await ExecuteActions(intro.arlActions, bTaskHasOutputNew)
+                    End If
+                    Return bTaskHasOutputNew
                 End If
                 ' TODO - Run the implicit actions if we didn't find an explict match later.
             End If
@@ -2496,9 +2525,9 @@ NextMessage:
         Dim topic As clsTopic = Nothing
         Dim sRestrictionTextTemp As String = sRestrictionText
         sRestrictionText = ""
-        If ConvType = clsAction.ConversationEnum.Command Then topic = FindConversationNode(ConvChar, ConvType Or clsAction.ConversationEnum.Farewell, sCommandOrSubject)
+        If ConvType = clsAction.ConversationEnum.Command Then topic = Await FindConversationNode(ConvChar, ConvType Or clsAction.ConversationEnum.Farewell, sCommandOrSubject)
         If topic Is Nothing Then
-            topic = FindConversationNode(ConvChar, ConvType, sCommandOrSubject)
+            topic = Await FindConversationNode(ConvChar, ConvType, sCommandOrSubject)
         Else
             Adventure.sConversationCharKey = ""
             Adventure.sConversationNode = ""
@@ -2512,7 +2541,9 @@ NextMessage:
             Else
                 If Not topic.bStayInNode Then Adventure.sConversationNode = ""
             End If
-            If topic.arlActions.Count > 0 Then ExecuteActions(topic.arlActions, bTaskHasOutputNew)
+            If topic.arlActions.Count > 0 Then
+                bTaskHasOutputNew = Await ExecuteActions(topic.arlActions, bTaskHasOutputNew)
+            End If
         Else
             ' Hmm, no conversation found.  Need to give a default response back...
             Adventure.sConversationNode = ""
@@ -2543,18 +2574,19 @@ NextMessage:
             If AddResponse(False, sMessage, New String() {}, True) Then bTaskHasOutputNew = True
         End If
         sRestrictionText = sRestrictionTextTemp ' Dunno if we really need to do this, but may as well to be safe
-    End Sub
+        Return bTaskHasOutputNew
+    End Function
 
-
-    Friend Sub TriggerTimerEvent(ByVal sEventKey As String, ByVal se As clsEvent.SubEvent)
+    ' Doesn't need to be awaited
+    Friend Async Function TriggerTimerEvent(ByVal sEventKey As String, ByVal se As clsEvent.SubEvent) As Task
         With Adventure.htblEvents(sEventKey)
-            .RunSubEvent(se)
+            Await .RunSubEvent(se)
         End With
-        Display(vbCrLf & vbCrLf, True)
-        CheckEndOfGame()
-    End Sub
+        Await Display(vbCrLf & vbCrLf, True)
+        Await CheckEndOfGame()
+    End Function
 
-    Friend Function FindConversationNode(ByVal ConvChar As clsCharacter, ByVal ConvType As clsAction.ConversationEnum, ByVal sCommandOrSubject As String) As clsTopic
+    Friend Async Function FindConversationNode(ByVal ConvChar As clsCharacter, ByVal ConvType As clsAction.ConversationEnum, ByVal sCommandOrSubject As String) As Task(of clsTopic)
         Dim iConvType As Integer = CInt(ConvType)
         Dim bFarewell As Boolean = False
         If iConvType >= CInt(clsAction.ConversationEnum.Farewell) Then
@@ -2603,7 +2635,7 @@ NextMessage:
 
                         For Each sKeyword As String In sKeywords
                             If ContainsWord(sCommandOrSubject, sKeyword.ToLower.Trim) OrElse sKeyword = "*" Then
-                                If PassRestrictions(topic.arlRestrictions) Then iMatchedKeywords += 1 ' Return topic
+                                If Await PassRestrictions(topic.arlRestrictions) Then iMatchedKeywords += 1 ' Return topic
                                 If sKeyword = "*" Then bLowPriority = True
                             End If
                         Next
@@ -2621,7 +2653,7 @@ NextMessage:
                         ' RE matching
                         For Each re As System.Text.RegularExpressions.Regex In GetRegularExpression(topic.Keywords.Trim.Replace("?", "\?"), sCommandOrSubject, False)
                             If re IsNot Nothing AndAlso re.IsMatch(sCommandOrSubject) Then
-                                If PassRestrictions(topic.arlRestrictions) Then
+                                If Await PassRestrictions(topic.arlRestrictions) Then
                                     For i As Integer = 0 To 4
                                         Dim iRef As Integer = i + 1
                                         Dim sNumber As String = "%number" & iRef.ToString & "%"
@@ -2651,7 +2683,7 @@ NextMessage:
                     End If
                     If Not bAsk AndAlso Not bTell AndAlso Not bCommand Then
                         ' No matching whatsoever
-                        If PassRestrictions(topic.arlRestrictions) Then Return topic
+                        If Await PassRestrictions(topic.arlRestrictions) Then Return topic
                     End If
                 End If
             Next
@@ -2661,24 +2693,25 @@ NextMessage:
     End Function
 
 
-    Private Sub ExecuteActions(ByVal Actions As ActionArrayList, Optional ByRef bTaskHasOutputNew As Boolean = False)
+    Private Async Function ExecuteActions(ByVal Actions As ActionArrayList, Optional ByVal bTaskHasOutputNew As Boolean = False) As Task(of Boolean)
 
         DebugPrint(ItemEnum.Task, "", DebugDetailLevelEnum.High, "Executing Actions...")
         iDebugIndent += 1
         For Each act As clsAction In Actions
-            ExecuteSingleAction(act, "", Nothing, bTaskHasOutputNew)
+            bTaskHasOutputNew = Await ExecuteSingleAction(act, "", Nothing, , bTaskHasOutputNew)
         Next
         iDebugIndent -= 1
-
-    End Sub
-    Private Sub ExecuteActions(ByVal task As clsTask, Optional ByVal bCalledFromEvent As Boolean = False, Optional ByRef bTaskHasOutputNew As Boolean = False)
+        Return bTaskHasOutputNew
+    End Function
+    Private Async Function ExecuteActions(ByVal task As clsTask, Optional ByVal bCalledFromEvent As Boolean = False, Optional ByVal bTaskHasOutputNew As Boolean = False) As Task(of Boolean)
         DebugPrint(ItemEnum.Task, task.Key, DebugDetailLevelEnum.High, "Executing Actions...")
         iDebugIndent += 1
         For Each act As clsAction In task.arlActions
-            ExecuteSingleAction(act, ParentTaskCommand(task), task, bCalledFromEvent, bTaskHasOutputNew)
+            bTaskHasOutputNew = Await ExecuteSingleAction(act, ParentTaskCommand(task), task, bCalledFromEvent, bTaskHasOutputNew)
         Next
         iDebugIndent -= 1
-    End Sub
+        Return bTaskHasOutputNew
+    End Function
 
     Public Sub ShowUserSplash()
         If clsBlorb.Frontispiece > -1 Then
@@ -2773,9 +2806,9 @@ NextWord:
         Next sWord
     End Function
 
-    Private Sub DisplayAmbiguityQuestion()
+    Private Async Function DisplayAmbiguityQuestion() as Task
         NewReferences = Adventure.htblTasks(sAmbTask).NewReferencesWorking
-        If NewReferences Is Nothing Then Exit Sub
+        If NewReferences Is Nothing Then Exit Function
 
         For iRef As Integer = 0 To NewReferences.Length - 1
             Debug.WriteLine("Reference " & iRef)
@@ -2802,16 +2835,16 @@ NextWord:
                                         End If
                                     Next
                                     If bAnyPlural Then
-                                        Display("You can't see any " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "!" & vbCrLf)
+                                        Await Display("You can't see any " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "!" & vbCrLf)
                                     Else
-                                        Display("You can't see any " & (New clsObject).GuessPluralFromNoun(AmbWord(itm.MatchingPossibilities, .ReferenceType)) & "!" & vbCrLf)
+                                        Await Display("You can't see any " & (New clsObject).GuessPluralFromNoun(AmbWord(itm.MatchingPossibilities, .ReferenceType)) & "!" & vbCrLf)
                                     End If
                                     sAmbTask = Nothing
                                 Else
-                                    Display("Which " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "?")
-                                    Display(ToProper(htblObs.List("or")) & "." & vbCrLf)
+                                    Await Display("Which " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "?")
+                                    Await Display(ToProper(htblObs.List("or")) & "." & vbCrLf)
                                 End If
-                                Exit Sub
+                                Exit Function
                             Case ReferencesType.Character
                                 Dim htblChars As New CharacterHashTable
                                 For Each sKey As String In itm.MatchingPossibilities
@@ -2822,33 +2855,33 @@ NextWord:
                                     If Not bCanSeeAny AndAlso Adventure.Player.CanSeeCharacter(sKey) Then bCanSeeAny = True
                                 Next
                                 If Not bCanSeeAny Then
-                                    Display("You can't see any " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "!" & vbCrLf)
+                                    Await Display("You can't see any " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "!" & vbCrLf)
                                     sAmbTask = Nothing
                                 Else
-                                    Display("Which " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "?")
-                                    Display(ToProper(htblChars.List("or")) & "." & vbCrLf)
+                                    Await Display("Which " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "?")
+                                    Await Display(ToProper(htblChars.List("or")) & "." & vbCrLf)
                                 End If
-                                Exit Sub
+                                Exit Function
                             Case ReferencesType.Location
                                 Dim htblLocs As New LocationHashTable
                                 For Each sKey As String In itm.MatchingPossibilities
                                     htblLocs.Add(Adventure.htblLocations(sKey), sKey)
                                 Next
-                                Display("Which " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "?")
-                                Display(ToProper(htblLocs.List("or")) & "." & vbCrLf)
-                                Exit Sub
+                                Await Display("Which " & AmbWord(itm.MatchingPossibilities, .ReferenceType) & "?")
+                                Await Display(ToProper(htblLocs.List("or")) & "." & vbCrLf)
+                                Exit Function
                             Case Else
                                 ErrMsg("Unable to disambiguate reference types " & .ReferenceType.ToString)
                         End Select
                     ElseIf itm.MatchingPossibilities.Count = 0 Then
-                        Display("Sorry, that does not clarify the ambiguity." & vbCrLf)
+                        Await Display("Sorry, that does not clarify the ambiguity." & vbCrLf)
                         sAmbTask = Nothing
-                        Exit Sub
+                        Exit Function
                     End If
                 Next
             End With
         Next
-    End Sub
+    End Function
 
     Private Sub PrintOutReferences()
 
@@ -3152,13 +3185,12 @@ NextChar2:
     End Sub
 
 
-    Friend Sub Restart()
-        ' OpenAdventure is async, so this is risky
-        OpenAdventure(Adventure.FullPath).Wait()
-    End Sub
+    Friend Async Function Restart() as Task
+        Await OpenAdventure(Adventure.FullPath)
+    End Function
 
 
-    Friend Function SaveGame(Optional ByVal bSaveAs As Boolean = False) As Boolean
+    Friend Async Function SaveGame(Optional ByVal bSaveAs As Boolean = False) As Task(of Boolean)
         Try
             Dim sFilename As String = Glue.QuerySavePath()
 
@@ -3166,24 +3198,25 @@ NextChar2:
                 If Not sFilename.ToLower.EndsWith(".tas") Then sFilename &= ".tas"
                 Adventure.sGameFilename = sFilename
                 Dim ss As New StateStack
-                If SaveState(ss.GetState, sFilename) Then
-                    Display("Game """ & IO.Path.GetFileNameWithoutExtension(sFilename) & """ saved")
+                If SaveState(Await ss.GetState, sFilename) Then
+                    Await Display("Game """ & IO.Path.GetFileNameWithoutExtension(sFilename) & """ saved")
                     SaveSetting("ADRIFT", "Runner", "Game Path", IO.Path.GetDirectoryName(sFilename))
                     Adventure.Changed = False
                     Return True
                 Else
-                    Display("Error saving game")
+                    Await Display("Error saving game")
                     Return False
                 End If
             End If
         Catch ex As Exception
+            ' Can't await here...
             Display("Error saving game: " & ex.Message)
             Return False
         End Try
         Return False
     End Function
 
-    Friend Sub Restore(Optional sFilename As String = "")
+    Friend Async Function Restore(Optional sFilename As String = "") As Task
         If sFilename <> "" Then
             If Not sFilename.ToLower.EndsWith(".tas") Then sFilename &= ".tas"
         Else
@@ -3197,32 +3230,32 @@ NextChar2:
                     t.Completed = False ' Just in case the save file doesn't cover that task
                 Next
                 Dim ss As New StateStack
-                ss.LoadState(sFilename)
-                Display("Game """ & IO.Path.GetFileNameWithoutExtension(sFilename) & """ restored" & vbCrLf, True)
+                Await ss.LoadState(sFilename)
+                Await Display("Game """ & IO.Path.GetFileNameWithoutExtension(sFilename) & """ restored" & vbCrLf, True)
                 Adventure.sGameFilename = sFilename
                 Adventure.eGameState = clsAction.EndGameEnum.Running
                 Adventure.bDisplayedWinLose = False
                 UpdateStatusBar()
-                Display(Adventure.htblLocations(Adventure.Player.Location.LocationKey).ViewLocation, True)
+                Await Display(Adventure.htblLocations(Adventure.Player.Location.LocationKey).ViewLocation, True)
                 'If States.Count = 0 Then States.RecordState() ' So we're able to Undo immediately after a restore
                 bSystemTask = False ' Allow events to run
-                PrepareForNextTurn()
+                Await PrepareForNextTurn()
                 UserSession.Map.RecalculateNode(Adventure.Map.FindNode(Adventure.Player.Location.LocationKey))
                 UserSession.Map.SelectNode(Adventure.Player.Location.LocationKey)
             Else
-                Display("Save file not found.", True)
+                Await Display("Save file not found.", True)
             End If
         End If
-    End Sub
+    End Function
 
 
     Friend bQuitting As Boolean = False
-    Friend Function Quit(Optional ByVal bJustGame As Boolean = False) As Boolean
+    Friend Async Function Quit(Optional ByVal bJustGame As Boolean = False) As Task(of Boolean)
         If Adventure IsNot Nothing AndAlso Adventure.eGameState = clsAction.EndGameEnum.Running Then
             If Adventure.Changed Then
                 Select Case Glue.QuerySaveBeforeQuit()
                     Case QueryResult.YES
-                        SaveGame(True)
+                        Await SaveGame(True)
                     Case QueryResult.NO
                         ' Continue
                     Case QueryResult.CANCEL
@@ -3239,20 +3272,20 @@ NextChar2:
         Return True
     End Function
 
-    Friend Sub Undo()
-        If States.SetLastState Then
+    Friend Async Function Undo() as Task
+        If Await States.SetLastState Then
             Adventure.bDisplayedWinLose = False
             UserSession.Map.RecalculateNode(Adventure.Map.FindNode(Adventure.Player.Location.LocationKey))
             UserSession.Map.SelectNode(Adventure.Player.Location.LocationKey)
             UpdateStatusBar()
             Dim sText As String = sTurnOutput
-            Display("Undone.", , , False)
-            If sText <> "" Then Display(sText)
+            Await Display("Undone.", , , False)
+            If sText <> "" Then Await Display(sText)
         Else
-            Display("Sorry, <c>undo</c> is not currently available.")
+            Await Display("Sorry, <c>undo</c> is not currently available.")
         End If
         bSystemTask = True
-    End Sub
+    End Function
 
     Private Function GetBlock(ByVal sText As String) As String
         Dim cText() As Char = sText.ToCharArray
@@ -3723,7 +3756,7 @@ NextWord:
         Debug.WriteLine("Autos built in " & Now.Subtract(dtAutos).ToString)
     End Sub
 
-    Private Function EvaluateInput(ByVal iMinimumPriority As Integer, ByVal bPassingOnly As Boolean) As String
+    Private Async Function EvaluateInput(ByVal iMinimumPriority As Integer, ByVal bPassingOnly As Boolean) As Task(of String)
         Dim cCursor As Char = "Ø"c
         Dim cCommentCursor As Char = "@"c
         Dim sCursorFont As String = "Wingdings"
@@ -3732,31 +3765,31 @@ NextWord:
 
         InitialiseInputBox()
         If bComment Then
-            Display("<c><font face=""" & sCursorFont & """ size=18>" & cCommentCursor & "</font> " & sInput & "</c>" & vbCrLf, True, False)
+            Await Display("<c><font face=""" & sCursorFont & """ size=18>" & cCommentCursor & "</font> " & sInput & "</c>" & vbCrLf, True, False)
             Return ""
         End If
 
         If iMinimumPriority = 0 Then
-            Display("<c><font face=""" & sCursorFont & """ size=14>" & cCursor & "</font> " & sInput & "</c>" & vbCrLf, True, False, False)
+            Await Display("<c><font face=""" & sCursorFont & """ size=14>" & cCursor & "</font> " & sInput & "</c>" & vbCrLf, True, False, False)
             sInput = sInput.ToLower
             If ContainsWord(sInput, "it") Then
-                Display("<c>(" & sIt & ")</c>" & vbCrLf, True)
+                Await Display("<c>(" & sIt & ")</c>" & vbCrLf, True)
                 ReplaceWord(sInput, "it", sIt)
             End If
             If ContainsWord(sInput, "them") Then
-                Display("<c>(" & sThem & ")</c>" & vbCrLf, True)
+                Await Display("<c>(" & sThem & ")</c>" & vbCrLf, True)
                 ReplaceWord(sInput, "them", sThem)
             End If
             If ContainsWord(sInput, "him") Then
-                Display("<c>(" & sHim & ")</c>" & vbCrLf, True)
+                Await Display("<c>(" & sHim & ")</c>" & vbCrLf, True)
                 ReplaceWord(sInput, "him", sHim)
             End If
             If ContainsWord(sInput, "her") Then
-                Display("<c>(" & sHer & ")</c>" & vbCrLf, True)
+                Await Display("<c>(" & sHer & ")</c>" & vbCrLf, True)
                 ReplaceWord(sInput, "her", sHer)
             End If
             If (sInput = "again" OrElse sInput = "g") AndAlso salCommands.Count > 2 Then
-                Display("<c>(" & salCommands(salCommands.Count - 3) & ")</c>" & vbCrLf, True)
+                Await Display("<c>(" & salCommands(salCommands.Count - 3) & ")</c>" & vbCrLf, True)
                 sInput = salCommands(salCommands.Count - 3)
                 salCommands.RemoveAt(salCommands.Count - 2) ' Don't store 'again'
             End If
@@ -3773,18 +3806,18 @@ NextWord:
             If sInput <> sPreSyn Then
                 DebugPrint(ItemEnum.General, "", DebugDetailLevelEnum.Medium, "Synonyms changed input """ & sPreSyn & """ to """ & sInput & """")
             End If
-            If CBool(GetSetting("ADRIFT", "Runner", "BlankLine", "0")) Then Display(vbCrLf)
+            If CBool(GetSetting("ADRIFT", "Runner", "BlankLine", "0")) Then Await Display(vbCrLf)
         End If
 
         sInput = sInput.ToLower
 
         ' Don't actually respond to the tasks here, in case the user has created a task to override the system one.
         If Adventure.eGameState <> clsAction.EndGameEnum.Running OrElse Adventure.dVersion < 5 Then
-            If SystemTasks(True) Then
+            If Await SystemTasks(True) Then
                 Return ""
             Else
                 If Adventure.eGameState <> clsAction.EndGameEnum.Running Then
-                    Display("Please give one of the answers above." & vbCrLf)
+                    Await Display("Please give one of the answers above." & vbCrLf)
                     Return ""
                 End If
             End If
@@ -3819,7 +3852,7 @@ NextWord:
                 bCopied = True
                 sRememberAmbTask = sAmbTask
             End If
-            sTaskKey = GetGeneralTask(sInput, iMinimumPriority, False)
+            sTaskKey = Await GetGeneralTask(sInput, iMinimumPriority, False)
             If Adventure.sReferencedText(0) = "" Then Adventure.sReferencedText(0) = sInput
             If sTaskKey Is Nothing AndAlso sAmbTask IsNot Nothing AndAlso iMinimumPriority > 0 AndAlso sOutputText <> "" Then sAmbTask = Nothing ' Suppress ambiguity question if we're running further down task list and we already have a failure response
             If sTaskKey Is Nothing AndAlso sAmbTask Is Nothing AndAlso Not sRememberAmbTask Is Nothing Then sAmbTask = sRememberAmbTask
@@ -3832,26 +3865,26 @@ NextWord:
 
         If Not sAmbTask Is Nothing AndAlso sTaskKey Is Nothing Then
             ' Display ambiguity question
-            DisplayAmbiguityQuestion()
+            Await DisplayAmbiguityQuestion()
         Else
             sAmbTask = Nothing
             If sTaskKey IsNot Nothing Then
                 Dim taskRun As clsTask = Adventure.htblTasks(sTaskKey)
                 NewReferences = taskRun.NewReferencesWorking
-                AttemptToExecuteTask(sTaskKey, , , , , , , bPassingOnly)
+                Await AttemptToExecuteTask(sTaskKey, , , , , , , bPassingOnly)
                 If taskRun.bSystemTask Then bSystemTask = True
 
                 While Adventure.qTasksToRun.Count > 0
                     Dim sKey As String = Adventure.qTasksToRun.Dequeue
-                    AttemptToExecuteTask(sKey, True)
+                    Await AttemptToExecuteTask(sKey, True)
                 End While
 
                 If iMinimumPriority = 0 Then
                     If sOutputText = "" Then
-                        NotUnderstood()
+                        Await NotUnderstood()
                     Else
                         ' Ok, successful task.  So long as we didn't execute a system task
-                        If Not bSystemTask Then TurnBasedStuff()
+                        If Not bSystemTask Then Await TurnBasedStuff()
                         Adventure.Changed = True
                         sRememberedVerb = ""
                     End If
@@ -3859,17 +3892,17 @@ NextWord:
             Else
                 If iMinimumPriority = 0 Then
                     If Adventure.eGameState = clsAction.EndGameEnum.Running Then
-                        If Not SystemTasks() Then NotUnderstood()
+                        If Not Await SystemTasks() Then Await NotUnderstood()
                         bSystemTask = True
                     End If
                 End If
             End If
-            If iMinimumPriority = 0 AndAlso sOutputText <> "***SYSTEM***" Then Display(vbCrLf)
+            If iMinimumPriority = 0 AndAlso sOutputText <> "***SYSTEM***" Then Await Display(vbCrLf)
         End If
 
         If sOutputText <> "***SYSTEM***" Then
             If iMinimumPriority = 0 Then
-                Display(vbCrLf, True)
+                Await Display(vbCrLf, True)
                 DebugPrint(ItemEnum.General, "", DebugDetailLevelEnum.Low, "ENDOFTURN")
             End If
             Debug.WriteLine(Now.Subtract(dtDebug).ToString())
@@ -3889,13 +3922,13 @@ NextWord:
         End Function
     End Class
 
-    Private Sub NotUnderstood()
+    Private Async Function NotUnderstood() as Task
 
         If sRememberedVerb <> "" Then
             sInput = sRememberedVerb & " " & sInput
             sRememberedVerb = ""
-            EvaluateInput(-1, False)
-            If sOutputText <> "" Then Exit Sub
+            Await EvaluateInput(-1, False)
+            If sOutputText <> "" Then Exit Function
         End If
 
         With Adventure
@@ -3957,8 +3990,8 @@ NextWord:
             ' Check all words typed, to ensure they are valid
             For Each sWord As String In sInput.Split(" "c)
                 If Not .listKnownWords.Contains(sWord) Then
-                    Display("I did not understand the word """ & sWord & """.")
-                    Exit Sub
+                    Await Display("I did not understand the word """ & sWord & """.")
+                    Exit Function
                 End If
             Next
 
@@ -3972,8 +4005,8 @@ NextWord:
                                     For Each RegEx As System.Text.RegularExpressions.Regex In lRegEx
                                         If RegEx.IsMatch(sInput & " sdkfjdslkj") Then
                                             sRememberedVerb = sInput
-                                            Display(PCase(sInput) & " what?")
-                                            Exit Sub
+                                            Await Display(PCase(sInput) & " what?")
+                                            Exit Function
                                         End If
                                     Next
                                 Next
@@ -3982,8 +4015,8 @@ NextWord:
                                     For Each RegEx As System.Text.RegularExpressions.Regex In lRegEx
                                         If RegEx.IsMatch(sInput & " sdkfjdslkj") Then
                                             sRememberedVerb = sInput
-                                            Display(PCase(sInput) & " who?")
-                                            Exit Sub
+                                            Await Display(PCase(sInput) & " who?")
+                                            Exit Function
                                         End If
                                     Next
                                 Next
@@ -3992,8 +4025,8 @@ NextWord:
                                     For Each RegEx As System.Text.RegularExpressions.Regex In lRegEx
                                         If RegEx.IsMatch(sInput & " " & DirectionName(DirectionsEnum.North)) Then
                                             sRememberedVerb = sInput
-                                            Display(PCase(sInput) & " where?")
-                                            Exit Sub
+                                            Await Display(PCase(sInput) & " where?")
+                                            Exit Function
                                         End If
                                     Next
                                 Next
@@ -4009,8 +4042,8 @@ NextWord:
                     If Adventure.Player.CanSeeObject(ob.Key) Then
                         Dim re As New System.Text.RegularExpressions.Regex(ob.sRegularExpressionString)
                         If re.IsMatch(sInput) Then
-                            Display("I don't understand what you want to do with " & ob.FullName(ArticleTypeEnum.Definite) & ".")
-                            Exit Sub
+                            Await Display("I don't understand what you want to do with " & ob.FullName(ArticleTypeEnum.Definite) & ".")
+                            Exit Function
                         End If
                     Else
                         ' Hmm, should we give a response when mentioning objects seen but not visible
@@ -4022,8 +4055,8 @@ NextWord:
                     If Adventure.Player.CanSeeCharacter(ch.Key) Then
                         Dim re As New System.Text.RegularExpressions.Regex(ch.sRegularExpressionString)
                         If re.IsMatch(sInput) Then
-                            Display("I don't understand what you want to do with " & ch.Name & ".")
-                            Exit Sub
+                            Await Display("I don't understand what you want to do with " & ch.Name & ".")
+                            Exit Function
                         End If
                     Else
                         ' Hmm, should we give a response when mentioning characters seen but not visible
@@ -4033,34 +4066,33 @@ NextWord:
         End With
 
         Display(Adventure.NotUnderstood)
-    End Sub
+    End Function
 
-    Private Function SystemTasks(Optional ByVal bEarly As Boolean = False) As Boolean
-        SystemTasks = True
+    Private Async Function SystemTasks(Optional ByVal bEarly As Boolean = False) As Task(of Boolean)
         Select Case sInput
             Case "restart"
-                Restart()
+                Await Restart()
                 If Not bEarly Then sOutputText = "***SYSTEM***"
             Case "restore"
-                Restore()
-                Display(vbCrLf & vbCrLf, True)
+                Await Restore()
+                Await Display(vbCrLf & vbCrLf, True)
                 If Not bEarly Then sOutputText = "***SYSTEM***"
             Case "save"
-                If bEarly Then Return False Else SaveGame()
+                If bEarly Then Return False Else Await SaveGame()
             Case "save as", "saveas"
-                If bEarly Then Return False Else SaveGame(True)
+                If bEarly Then Return False Else Await SaveGame(True)
             Case "quit"
-                Quit(Not bEarly)
+                Await Quit(Not bEarly)
             Case "undo"
-                Undo()
-                If bEarly Then Display(vbCrLf & vbCrLf, True)
+                Await Undo()
+                If bEarly Then Await Display(vbCrLf & vbCrLf, True)
             Case "wait", "z"
                 If bEarly Then
                     Return False
                 Else
-                    sOutputText = ReplaceALRs("Time passes...") ' TODO - Bring this into Developer as a task
+                    sOutputText = Await ReplaceALRs("Time passes...") ' TODO - Bring this into Developer as a task
                     For i As Integer = 0 To Adventure.WaitTurns - 1
-                        TurnBasedStuff()
+                        Await TurnBasedStuff()
                     Next
                 End If
             Case Else
@@ -4070,7 +4102,7 @@ NextWord:
                     If sFilename.StartsWith("""") AndAlso sFilename.EndsWith("""") Then sFilename = sFilename.Substring(1, sFilename.Length - 2)
                     For Each c As Char In IO.Path.GetInvalidPathChars
                         If sFilename.Contains(c) Then
-                            Display("Bad Filename")
+                            Await Display("Bad Filename")
                             Return True
                         End If
                     Next
@@ -4083,7 +4115,7 @@ NextWord:
                         End If
                     End If
                     Adventure.sGameFilename = sFilename
-                    SaveGame()
+                    Await SaveGame()
                     Return True
                 End If
 
@@ -4092,7 +4124,7 @@ NextWord:
                     If sFilename.StartsWith("""") AndAlso sFilename.EndsWith("""") Then sFilename = sFilename.Substring(1, sFilename.Length - 2)
                     For Each c As Char In IO.Path.GetInvalidPathChars
                         If sFilename.Contains(c) Then
-                            Display("Bad Filename")
+                            Await Display("Bad Filename")
                             Return True
                         End If
                     Next
@@ -4104,12 +4136,12 @@ NextWord:
                             sFilename = GetSetting("ADRIFT", "Runner", "Game Path", System.Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)) & "\" & sFilename
                         End If
                     End If
-                    Restore(sFilename)
+                    Await Restore(sFilename)
                     Return True
                 End If
                 Return False
         End Select
-
+        Return True
     End Function
 
     Public Sub UpdateStatusBar()
@@ -4149,20 +4181,20 @@ NextWord:
     End Sub
 
     Friend bEventsRunning As Boolean = False
-    Private Sub TurnBasedStuff()
+    Private Async Function TurnBasedStuff() As Task
 
-        If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Exit Sub
+        If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Exit Function
 
         For Each c As clsCharacter In Adventure.htblCharacters.Values
             For Each w As clsWalk In c.arlWalks
-                If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Exit Sub
-                w.IncrementTimer()
+                If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Exit Function
+                Await w.IncrementTimer()
             Next
         Next
         bEventsRunning = True
         For Each e As clsEvent In Adventure.htblEvents.Values
-            If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Exit Sub
-            If e.EventType = clsEvent.EventTypeEnum.TurnBased Then e.IncrementTimer()
+            If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Exit Function
+            If e.EventType = clsEvent.EventTypeEnum.TurnBased Then Await e.IncrementTimer()
         Next
         ' Needs to be a separate loop in case a later event runs a task that starts an earlier event
         For Each e As clsEvent In Adventure.htblEvents.Values
@@ -4170,29 +4202,29 @@ NextWord:
         Next
         bEventsRunning = False
 
-    End Sub
+    End Function
 
-    Public Sub TimeBasedStuff()
-        If Adventure.eGameState <> clsAction.EndGameEnum.Running OrElse fRunner.Locked Then Exit Sub
+    Public Async Function TimeBasedStuff() As Task
+        If Adventure.eGameState <> clsAction.EndGameEnum.Running OrElse fRunner.Locked Then Exit Function
 
         bEventsRunning = True
 
         For Each e As clsEvent In Adventure.htblEvents.Values
             If Adventure.eGameState <> clsAction.EndGameEnum.Running Then Exit For
-            If e.EventType = clsEvent.EventTypeEnum.TimeBased Then e.IncrementTimer()
+            If e.EventType = clsEvent.EventTypeEnum.TimeBased Then Await e.IncrementTimer()
         Next
         ' Needs to be a separate loop in case a later event runs a task that starts an earlier event
         For Each e As clsEvent In Adventure.htblEvents.Values
             If e.EventType = clsEvent.EventTypeEnum.TimeBased Then e.bJustStarted = False
         Next
         bEventsRunning = False
-        If sOutputText <> "" Then Display("", True)
+        If sOutputText <> "" Then Await Display("", True)
 
-        CheckEndOfGame()
-    End Sub
+        Await CheckEndOfGame()
+    End Function
 
-    Private Sub PrepareForNextTurn()
-        If Not bSystemTask AndAlso Adventure.eGameState = clsAction.EndGameEnum.Running Then States.RecordState()
+    Private Async Function PrepareForNextTurn() as Task
+        If Not bSystemTask AndAlso Adventure.eGameState = clsAction.EndGameEnum.Running Then Await States.RecordState()
         sTurnOutput = ""
 
         ' Mark objects as seen for all the characters
@@ -4246,7 +4278,7 @@ NextWord:
         PronounKeys.Clear()
 
         BuildAutos()
-    End Sub
+    End Function
 
     ' Runs this on a background thread so if user types a command we just resume where we are
     Private Sub CalculateCompleteableTasks()
@@ -4504,7 +4536,7 @@ NextWord:
         Return Nothing
     End Function
 
-    Private Function PassSingleRestriction(ByVal restx As clsRestriction, Optional ByVal bIgnoreReferences As Boolean = False) As Boolean
+    Private Async Function PassSingleRestriction(ByVal restx As clsRestriction, Optional ByVal bIgnoreReferences As Boolean = False) As Task(of Boolean)
 
         Try
             Dim rest As New clsRestriction
@@ -5039,7 +5071,9 @@ NextWord:
                                         Case ANYDIRECTION
                                             For Each c As clsCharacter In Adventure.htblCharacters.Values
                                                 For Each d As DirectionsEnum In [Enum].GetValues(GetType(DirectionsEnum))
-                                                    If c.HasRouteInDirection(d, False, , sSpecificError) Then
+                                                    Dim tup = Await c.HasRouteInDirection(d, False, , sSpecificError)
+                                                    sSpecificError = tup.sErrorMessage
+                                                    If tup.result Then
                                                         r = True
                                                         GoTo DoneAnyCharAnyDir
                                                     End If
@@ -5048,7 +5082,9 @@ NextWord:
 DoneAnyCharAnyDir:
                                         Case Else
                                             For Each c As clsCharacter In Adventure.htblCharacters.Values
-                                                If c.HasRouteInDirection(CType([Enum].Parse(GetType(DirectionsEnum), rest.sKey2), DirectionsEnum), False, , sSpecificError) Then
+                                                Dim tup = Await c.HasRouteInDirection(CType([Enum].Parse(GetType(DirectionsEnum), rest.sKey2), DirectionsEnum), False, , sSpecificError)
+                                                sSpecificError = tup.sErrorMessage
+                                                If tup.result Then
                                                     r = True
                                                     Exit For
                                                 End If
@@ -5060,13 +5096,17 @@ DoneAnyCharAnyDir:
                                         Case ANYDIRECTION
                                             r = False
                                             For Each d As DirectionsEnum In [Enum].GetValues(GetType(DirectionsEnum))
-                                                If ch.HasRouteInDirection(d, False, , sSpecificError) Then
+                                                Dim tup = Await ch.HasRouteInDirection(d, False, , sSpecificError)
+                                                sSpecificError = tup.sErrorMessage
+                                                If tup.result Then
                                                     r = True
                                                     Exit For
                                                 End If
                                             Next
                                         Case Else
-                                            r = ch.HasRouteInDirection(CType([Enum].Parse(GetType(DirectionsEnum), rest.sKey2), DirectionsEnum), False, , sSpecificError)
+                                            Dim tup = Await ch.HasRouteInDirection(CType([Enum].Parse(GetType(DirectionsEnum), rest.sKey2), DirectionsEnum), False, , sSpecificError)
+                                                sSpecificError = tup.sErrorMessage
+                                            r = tup.result
                                     End Select
                             End Select
                             If sSpecificError <> "" Then sRouteError = sSpecificError
@@ -5550,7 +5590,7 @@ DoneAnyCharAnyDir:
                                 If rest.StringValue.Contains("""") Then
                                     sStringVal = EvaluateExpression(rest.StringValue)
                                 Else
-                                    sStringVal = ReplaceFunctions(rest.StringValue)
+                                    sStringVal = Await ReplaceFunctions(rest.StringValue)
                                 End If
                                 r = (prop.Value = sStringVal)
                             Case clsProperty.PropertyTypeEnum.ValueList
@@ -5612,7 +5652,7 @@ SkipTest:
     End Function
 
 
-    Private Function EvaluateRestrictionBlock(ByVal arlRestrictions As RestrictionArrayList, ByVal sBlock As String, Optional ByVal bIgnoreReferences As Boolean = False, Optional tas As clsTask = Nothing) As Boolean
+    Private Async Function EvaluateRestrictionBlock(ByVal arlRestrictions As RestrictionArrayList, ByVal sBlock As String, Optional ByVal bIgnoreReferences As Boolean = False, Optional tas As clsTask = Nothing) As Task(of Boolean)
 
         While sBlock.Contains("A#O")
             ' #A#O# => (#A#)O#
@@ -5646,24 +5686,24 @@ SkipTest:
                 End While
                 sSubBlock = sSubBlock.Substring(1, sSubBlock.Length - 2)
                 If sBlock.Length - 2 = sSubBlock.Length Then
-                    Return EvaluateRestrictionBlock(arlRestrictions, sSubBlock, bIgnoreReferences)
+                    Return Await EvaluateRestrictionBlock(arlRestrictions, sSubBlock, bIgnoreReferences)
                 Else
                     Select Case sBlock.Substring(sSubBlock.Length + 2, 1)
                         Case "A"
-                            Dim bFirst As Boolean = EvaluateRestrictionBlock(arlRestrictions, sSubBlock, bIgnoreReferences)
+                            Dim bFirst As Boolean = Await EvaluateRestrictionBlock(arlRestrictions, sSubBlock, bIgnoreReferences)
                             If Not bFirst Then
                                 iRestNum += CharacterCount(sBlock.Substring(sSubBlock.Length + 3), "#"c)
                                 Return False
                             Else
-                                Return EvaluateRestrictionBlock(arlRestrictions, sBlock.Substring(sSubBlock.Length + 3), bIgnoreReferences)
+                                Return Await EvaluateRestrictionBlock(arlRestrictions, sBlock.Substring(sSubBlock.Length + 3), bIgnoreReferences)
                             End If
                         Case "O"
-                            Dim bFirst As Boolean = EvaluateRestrictionBlock(arlRestrictions, sSubBlock, bIgnoreReferences)
+                            Dim bFirst As Boolean = Await EvaluateRestrictionBlock(arlRestrictions, sSubBlock, bIgnoreReferences)
                             If bFirst Then
                                 iRestNum += CharacterCount(sBlock.Substring(sSubBlock.Length + 3), "#"c)
                                 Return True
                             Else
-                                Return EvaluateRestrictionBlock(arlRestrictions, sBlock.Substring(sSubBlock.Length + 3), bIgnoreReferences)
+                                Return Await EvaluateRestrictionBlock(arlRestrictions, sBlock.Substring(sSubBlock.Length + 3), bIgnoreReferences)
                             End If
                         Case Else
                             ' Error
@@ -5672,24 +5712,24 @@ SkipTest:
             Case "#"
                 iRestNum += 1
                 If sBlock.Length = 1 Then
-                    Return PassSingleRestriction(arlRestrictions(iRestNum - 1), bIgnoreReferences)
+                    Return Await PassSingleRestriction(arlRestrictions(iRestNum - 1), bIgnoreReferences)
                 Else
                     Select Case sBlock.Substring(1, 1)
                         Case "A"
-                            Dim bFirst As Boolean = PassSingleRestriction(arlRestrictions(iRestNum - 1), bIgnoreReferences)
+                            Dim bFirst As Boolean = Await PassSingleRestriction(arlRestrictions(iRestNum - 1), bIgnoreReferences)
                             If Not bFirst Then
                                 iRestNum += CharacterCount(sBlock.Substring(2), "#"c)
                                 Return False
                             Else
-                                Return EvaluateRestrictionBlock(arlRestrictions, sBlock.Substring(2), bIgnoreReferences)
+                                Return Await EvaluateRestrictionBlock(arlRestrictions, sBlock.Substring(2), bIgnoreReferences)
                             End If
                         Case "O"
-                            Dim bFirst As Boolean = PassSingleRestriction(arlRestrictions(iRestNum - 1), bIgnoreReferences)
+                            Dim bFirst As Boolean = Await PassSingleRestriction(arlRestrictions(iRestNum - 1), bIgnoreReferences)
                             If bFirst Then
                                 iRestNum += CharacterCount(sBlock.Substring(2), "#"c)
                                 Return True
                             Else
-                                Return EvaluateRestrictionBlock(arlRestrictions, sBlock.Substring(2), bIgnoreReferences)
+                                Return Await EvaluateRestrictionBlock(arlRestrictions, sBlock.Substring(2), bIgnoreReferences)
                             End If
                         Case Else
                             ' Error
@@ -5708,7 +5748,7 @@ SkipTest:
 
 
     ' IgnoreReferences is for when we are evaluating whether the task is completable or not, but we don't have any refs yet
-    Public Function PassRestrictions(ByVal arlRestrictions As RestrictionArrayList, Optional ByVal bIgnoreReferences As Boolean = False, Optional tas As clsTask = Nothing) As Boolean
+    Public Async Function PassRestrictions(ByVal arlRestrictions As RestrictionArrayList, Optional ByVal bIgnoreReferences As Boolean = False, Optional tas As clsTask = Nothing) As Task(of Boolean)
 
         iRestNum = 0
         sRouteError = ""
@@ -5721,7 +5761,7 @@ SkipTest:
             ' "get red ball and blue ball from box"
             ' get red ball from box
             ' get blue ball from box
-            Return EvaluateRestrictionBlock(arlRestrictions, arlRestrictions.BracketSequence, bIgnoreReferences, tas)
+            Return Await EvaluateRestrictionBlock(arlRestrictions, arlRestrictions.BracketSequence, bIgnoreReferences, tas)
         End If
 
     End Function
@@ -6156,7 +6196,7 @@ DoesntMatch:
         Return nr
     End Function
 
-    Private Sub RefineMatchingPossibilitesUsingRestrictions(ByVal task As clsTask)
+    Private Async Function RefineMatchingPossibilitesUsingRestrictions(ByVal task As clsTask) as Task
         DebugPrint(ItemEnum.Task, task.Key, DebugDetailLevelEnum.High, "Checking scope: Applicable")
 
         Dim NewRefs(task.NewReferencesWorking.Length - 1) As clsNewReference
@@ -6214,7 +6254,7 @@ DoesntMatch:
                                 If task.NewReferencesWorking.Length > 2 Then
                                     ' TODO, when more than 2 refs...
                                 Else
-                                    If PassRestrictions(task.arlRestrictions) Then
+                                    If Await PassRestrictions(task.arlRestrictions) Then
                                         If Not bAddedItem0 Then NewRefs(0).Items.Add(itmOut0)
                                         If Not bAddedItem1 Then NewRefs(1).Items.Add(itmOut1)
                                         If Not lAdded(0).Contains(sKey0) Then itmOut0.MatchingPossibilities.Add(sKey0)
@@ -6229,7 +6269,7 @@ DoesntMatch:
 
                         Next itm1
                     Else
-                        If PassRestrictions(task.arlRestrictions) Then
+                        If Await PassRestrictions(task.arlRestrictions) Then
                             If Not bAddedItem0 AndAlso Not lAdded(0).Contains(sKey0) Then NewRefs(0).Items.Add(itmOut0)
                             itmOut0.MatchingPossibilities.Add(sKey0)
                             bAddedItem0 = True
@@ -6384,14 +6424,14 @@ DoesntMatch:
         Next
 
         task.NewReferencesWorking = NewRefs
-    End Sub
+    End Function
 
 
-    Private Function GetGeneralTask(ByVal sInput As String, ByVal iMinimumPriority As Integer, ByVal bSecondChance As Boolean) As String
+    Private Async Function GetGeneralTask(ByVal sInput As String, ByVal iMinimumPriority As Integer, ByVal bSecondChance As Boolean) As Task(of String)
         Dim iPriorityFail As Integer = Integer.MaxValue ' Lowest priority task that matches input and has output
         Dim sNoRefTask As String = "" ' We may match on a task, but find no references.  If so, at least return this rather than no task at all
 
-        GetGeneralTask = Nothing
+        Dim result = Nothing
         If Not bSecondChance Then htblSecondChanceTasks.Clear()
         If iMinimumPriority > 0 AndAlso iMinimumPriority < iPriorityFail Then iPriorityFail = iMinimumPriority ' Because if we're continuing on from an earlier execution, we shouldn't run lower priority tasks
 
@@ -6437,7 +6477,7 @@ DoesntMatch:
                                 Next nr
 
                                 ' Remove any references that don't pass the restrictions from our set
-                                RefineMatchingPossibilitesUsingRestrictions(tas)
+                                Await RefineMatchingPossibilitesUsingRestrictions(tas)
 
                                 ' If we still have at least one matching possibility in each reference item, then run this task, else we don't pass
                                 For Each nr As clsNewReference In tas.NewReferencesWorking
@@ -6479,7 +6519,7 @@ DoesntMatch:
                                     End If
 
                                     NewReferences = tas.NewReferencesWorking
-                                    Dim bDoesThisPass As Boolean = PassRestrictions(tas.arlRestrictions, , tas)
+                                    Dim bDoesThisPass As Boolean = Await PassRestrictions(tas.arlRestrictions, , tas)
 
                                     If Not bDoesThisPass AndAlso tas.FailOverride.ToString <> "" AndAlso sRestrictionText = "" AndAlso ContainsWord(sInput, "all") Then
                                         sRestrictionText = tas.FailOverride.ToString
@@ -6498,7 +6538,7 @@ DoesntMatch:
                                             DebugPrint(ItemEnum.Task, tas.Key, DebugDetailLevelEnum.Medium, "Task doesn't pass restrictions, but is current highest priority failing task with restriction output.")
                                         End If
 
-                                        GetGeneralTask = tas.Key
+                                        result = tas.Key
                                         If sRestrictionText <> "" Then iPriorityFail = tas.Priority
 
                                         DebugPrint(ItemEnum.Task, tas.Key, DebugDetailLevelEnum.High, "Task priority: " & tas.Priority)
@@ -6519,13 +6559,14 @@ DoesntMatch:
             Next
 FoundTask:
 
-            If GetGeneralTask Is Nothing AndAlso sNoRefTask <> "" Then GetGeneralTask = sNoRefTask
+            If result Is Nothing AndAlso sNoRefTask <> "" Then result = sNoRefTask
 
-            If GetGeneralTask Is Nothing AndAlso sAmbTask Is Nothing AndAlso Not bSecondChance Then
+            If result Is Nothing AndAlso sAmbTask Is Nothing AndAlso Not bSecondChance Then
                 ' Ok, no luck.  Let's go back and see if one of our 'exist' tasks worked
                 DebugPrint(ItemEnum.Task, "", DebugDetailLevelEnum.Medium, "No matches found.  Checking again using existance.")
-                Return GetGeneralTask(sInput, iMinimumPriority, True)
+                Return Await GetGeneralTask(sInput, iMinimumPriority, True)
             End If
+            Return result
         Catch ex As Exception
             ErrMsg("GetGeneralTask Error", ex)
         End Try

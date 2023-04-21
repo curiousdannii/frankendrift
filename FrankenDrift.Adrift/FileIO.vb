@@ -891,7 +891,7 @@ Module FileIO
         Exe
     End Enum
 
-    Friend Function LoadFile(ByVal sFilename As String, ByVal eFileType As FileTypeEnum, ByVal eLoadWhat As LoadWhatEnum, ByVal bLibrary As Boolean, Optional ByVal dtAdvDate As Date = #1/1/1900#, Optional ByRef state As clsGameState = Nothing, Optional ByVal lOffset As Long = 0, Optional ByVal bSilentError As Boolean = False) As Boolean
+    Friend Async Function LoadFile(ByVal sFilename As String, ByVal eFileType As FileTypeEnum, ByVal eLoadWhat As LoadWhatEnum, ByVal bLibrary As Boolean, Optional ByVal dtAdvDate As Date = #1/1/1900#, Optional ByVal state As clsGameState = Nothing, Optional ByVal lOffset As Long = 0, Optional ByVal bSilentError As Boolean = False) As Task(of (result as Boolean, state As clsGameState))
 
         Dim stmOriginalFile As IO.FileStream = Nothing
 
@@ -899,7 +899,7 @@ Module FileIO
             If Not IO.File.Exists(sFilename) Then
                 ErrMsg("File '" & sFilename & "' not found.")
                 RemoveFileFromList(sFilename)
-                Return False
+                Return (False, state)
             End If
 
             stmOriginalFile = New IO.FileStream(sFilename, IO.FileMode.Open, FileAccess.Read)
@@ -928,12 +928,12 @@ Module FileIO
             Select Case eFileType
                 Case FileTypeEnum.Exe
                     If clsBlorb.ExecResource IsNot Nothing AndAlso clsBlorb.ExecResource.Length > 0 Then
-                        If Not Load500(Decompress(clsBlorb.ExecResource, dVersion >= 5.00002 AndAlso clsBlorb.bObfuscated, 16, clsBlorb.ExecResource.Length - 30), False) Then Return False
+                        If Not Load500(Decompress(clsBlorb.ExecResource, dVersion >= 5.00002 AndAlso clsBlorb.bObfuscated, 16, clsBlorb.ExecResource.Length - 30), False) Then Return (False, state)
                         clsBlorb.bObfuscated = False
                         If clsBlorb.MetaData IsNot Nothing Then Adventure.BabelTreatyInfo.FromString(clsBlorb.MetaData.OuterXml)
                         Adventure.FullPath = SafeString(Application.ExecutablePath)
                     Else
-                        Return False
+                        Return (False, state)
                     End If
 
                 Case FileTypeEnum.Blorb
@@ -956,7 +956,7 @@ Module FileIO
 
                         If Left(sVersion, 8) <> "Version " Then
                             ErrMsg("Not an ADRIFT Blorb file")
-                            Return False
+                            Return (False, state)
                         End If
 
                         UserSession.ShowUserSplash()
@@ -970,14 +970,14 @@ Module FileIO
                         Dim bDeObfuscate As Boolean = clsBlorb.MetaData Is Nothing OrElse clsBlorb.MetaData.OuterXml.Contains("compilerversion") ' Nasty, but works
                         ' Was this a pre-obfuscated size blorb?
                         If clsBlorb.ExecResource.Length > 16 AndAlso clsBlorb.ExecResource(12) = 48 AndAlso clsBlorb.ExecResource(13) = 48 AndAlso clsBlorb.ExecResource(14) = 48 AndAlso clsBlorb.ExecResource(15) = 48 Then
-                            If Not Load500(Decompress(clsBlorb.ExecResource, bDeObfuscate, 16, clsBlorb.ExecResource.Length - 30), False) Then Return False
+                            If Not Load500(Decompress(clsBlorb.ExecResource, bDeObfuscate, 16, clsBlorb.ExecResource.Length - 30), False) Then Return (False, state)
                         Else
-                            If Not Load500(Decompress(clsBlorb.ExecResource, bDeObfuscate, 12, clsBlorb.ExecResource.Length - 26), False) Then Return False
+                            If Not Load500(Decompress(clsBlorb.ExecResource, bDeObfuscate, 12, clsBlorb.ExecResource.Length - 26), False) Then Return (False, state)
                         End If
 
                         If clsBlorb.MetaData IsNot Nothing Then Adventure.BabelTreatyInfo.FromString(clsBlorb.MetaData.OuterXml)
                     Else
-                        Return False
+                        Return (False, state)
                     End If
 
                 Case FileTypeEnum.TextAdventure_TAF
@@ -996,7 +996,7 @@ Module FileIO
 
                     If Left(sVersion, 8) <> "Version " Then
                         ErrMsg("Not an ADRIFT Text Adventure file")
-                        Return False
+                        Return (False, state)
                     End If
 
                     With Adventure
@@ -1010,12 +1010,12 @@ Module FileIO
                         Case "Version 3.90", "Version 4.00"
                             Dim br2 As BinaryReader = br
                             'LoadDefaults() ' If mandatory properties like StaticOrDynamic don't exist, create them                                                        
-                            LoadLibraries(LoadWhatEnum.Properies)
+                            Await LoadLibraries(LoadWhatEnum.Properies)
                             br = br2
                             iStartPriority = 0
                             If LoadOlder(CDbl(sVersion.Substring(8))) Then
                                 iStartPriority = 50000
-                                LoadLibraries(LoadWhatEnum.AllExceptProperties, "standardlibrary")
+                                Await LoadLibraries(LoadWhatEnum.AllExceptProperties, "standardlibrary")
                                 'CreateMandatoryProperties()
                                 TweakTasksForv4()
                                 br = br2
@@ -1023,7 +1023,7 @@ Module FileIO
                                 Adventure.dVersion = CDbl(sVersion.Substring(8))
                                 If Adventure.dVersion = 4 Then Adventure.dVersion = 4.000052
                             Else
-                                Return False
+                                Return (False, state)
                             End If
                         Case "Version 5.00"
                             Dim sSize As String = System.Text.Encoding.UTF8.GetString(br.ReadBytes(4))
@@ -1050,8 +1050,8 @@ Module FileIO
                                 bObfuscate = False
                             End If
                             Dim stmFile As MemoryStream = FileToMemoryStream(True, CInt(FileLen(sFilename) - 26 - lOffset - iBabelLength), bObfuscate)
-                            If stmFile Is Nothing Then Return False
-                            If Not Load500(stmFile, False, False, eLoadWhat, dtAdvDate) Then Return False ' - 12)))
+                            If stmFile Is Nothing Then Return (False, state)
+                            If Not Load500(stmFile, False, False, eLoadWhat, dtAdvDate) Then Return (False, state) ' - 12)))
                             If sBabel <> "" Then
                                 Adventure.BabelTreatyInfo.FromString(sBabel)
                                 Dim sTemp As String = Adventure.CoverFilename
@@ -1061,7 +1061,7 @@ Module FileIO
 
                         Case Else
                             ErrMsg("ADRIFT " & sVersion & " Adventures are not currently supported in ADRIFT v" & dVersion.ToString("0.0"))
-                            Return False
+                            Return (False, state)
                     End Select
                     Debug.WriteLine("End Load: " & Now)
 
@@ -1069,10 +1069,10 @@ Module FileIO
                     TODO("Version 4.0 Modules")
 
                 Case FileTypeEnum.XMLModule_AMF
-                    If Not Load500(FileToMemoryStream(False, CInt(FileLen(sFilename)), False), bLibrary, True, eLoadWhat, dtAdvDate, sFilename) Then Return False
+                    If Not Load500(FileToMemoryStream(False, CInt(FileLen(sFilename)), False), bLibrary, True, eLoadWhat, dtAdvDate, sFilename) Then Return (False, state)
 
                 Case FileTypeEnum.GameState_TAS
-                    state = LoadState(FileToMemoryStream(True, CInt(FileLen(sFilename)), False))
+                    state = Await LoadState(FileToMemoryStream(True, CInt(FileLen(sFilename)), False))
 
             End Select
 
@@ -1096,19 +1096,19 @@ Module FileIO
 
             iLoading -= 1
 
-            Return True
+            Return (True, state)
         Catch ex As Exception
             If Not br Is Nothing Then br.Close()
             If Not stmOriginalFile Is Nothing Then stmOriginalFile.Close()
             ErrMsg("Error loading " & sFilename, ex)
-            Return False
+            Return (False, state)
         Finally
         End Try
 
     End Function
 
 
-    Private Function LoadState(ByVal stmMemory As MemoryStream) As clsGameState
+    Private Async Function LoadState(ByVal stmMemory As MemoryStream) As Task(of clsGameState)
 
         Try
             Dim NewState As New clsGameState
@@ -5610,7 +5610,7 @@ NextGroup:
     End Function
 
 
-    Friend Sub LoadLibraries(ByVal eLoadWhat As LoadWhatEnum, Optional ByVal sOnlyLoad As String = "")
+    Friend Async Function LoadLibraries(ByVal eLoadWhat As LoadWhatEnum, Optional ByVal sOnlyLoad As String = "") as Task
         Dim sLibraries() As String = GetSetting("ADRIFT", "Generator", "Libraries").Split("|"c)
         Dim sError As String = ""
 
@@ -5632,7 +5632,7 @@ NextGroup:
 #If DEBUG Then
                 bLoadLibrary = True
 #End If
-                If bLoadLibrary Then LoadFile(sLibrary, FileTypeEnum.XMLModule_AMF, eLoadWhat, True)
+                If bLoadLibrary Then Await LoadFile(sLibrary, FileTypeEnum.XMLModule_AMF, eLoadWhat, True)
             End If
         Next
 
@@ -5640,10 +5640,11 @@ NextGroup:
             ErrMsg("Sorry.  The unregistered version of ADRIFT will only load the original library files.  The following libraries were not loaded:" & vbCrLf & vbCrLf & sError)
         End If
 
-    End Sub
+    End Function
 
 
-    Friend Sub OverwriteLibraries(ByVal eLoadWhat As LoadWhatEnum)
+    ' Never called!
+    Friend Async Function OverwriteLibraries(ByVal eLoadWhat As LoadWhatEnum) As Task
 
         Dim sLibraries() As String = GetSetting("ADRIFT", "Generator", "Libraries").Split("|"c)
 
@@ -5654,11 +5655,11 @@ NextGroup:
                 sLibrary = sLibrary.Split("#"c)(0)
             End If
             If bLoad AndAlso File.Exists(sLibrary) Then
-                LoadFile(sLibrary, FileTypeEnum.XMLModule_AMF, eLoadWhat, True, Adventure.LastUpdated)
+                Await LoadFile(sLibrary, FileTypeEnum.XMLModule_AMF, eLoadWhat, True, Adventure.LastUpdated)
             End If
         Next
 
-    End Sub
+    End Function
 
 
     ' v4 GetLine

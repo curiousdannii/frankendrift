@@ -69,10 +69,10 @@ Public Class StateStack
         stateCurrent = state
     End Sub
 
-    Shadows Sub Pop()
-        RestoreState(CType(MyBase.Pop, clsGameState))
+    Shadows Async Function Pop() as Task
+        Await RestoreState(CType(MyBase.Pop, clsGameState))
         Debug.WriteLine("Popped (" & MyBase.Count & " on stack)")
-    End Sub
+    End Function
 
     Private Sub SaveDisplayOnce(ByVal AllDescriptions As List(Of Description), ByVal htblStore As Dictionary(Of String, Boolean))
 
@@ -91,7 +91,7 @@ Public Class StateStack
     End Sub
 
     ' Get the current game state, and store in a GameState class
-    Friend Function GetState() As clsGameState
+    Friend Async Function GetState() As Task(of clsGameState)
         Dim NewState As New clsGameState
 
         With NewState
@@ -135,7 +135,7 @@ Public Class StateStack
             For Each ev As clsEvent In Adventure.htblEvents.Values
                 Dim evs As New clsGameState.clsEventState
                 evs.Status = ev.Status
-                evs.TimerToEndOfEvent = ev.TimerToEndOfEvent
+                evs.TimerToEndOfEvent = ev.TimerToEndOfEvent()
                 evs.iLastSubEventTime = ev.iLastSubEventTime
                 For i As Integer = 0 To ev.SubEvents.Length - 1
                     If ev.LastSubEvent Is ev.SubEvents(i) Then
@@ -210,16 +210,17 @@ Public Class StateStack
     End Function
 
     ' Save the current game state onto our stack
-    Public Sub RecordState()
-        Push(GetState)
-    End Sub
+    Public Async Function RecordState() As Task
+        Push(Await GetState)
+    End Function
 
     ' Load from file, and restore
-    Friend Sub LoadState(ByVal sFilePath As String)
+    Friend Async Function LoadState(ByVal sFilePath As String) As Task
         Dim NewState As clsGameState = Nothing
-        LoadFile(sFilePath, FileTypeEnum.GameState_TAS, LoadWhatEnum.All, False, , NewState)
-        If NewState IsNot Nothing Then RestoreState(NewState)
-    End Sub
+        Dim tup = Await LoadFile(sFilePath, FileTypeEnum.GameState_TAS, LoadWhatEnum.All, False, , NewState)
+        NewState = tup.state
+        If NewState IsNot Nothing Then Await RestoreState(NewState)
+    End Function
 
     Private Sub RestoreDisplayOnce(ByVal AllDescriptions As List(Of Description), ByVal htblStore As Dictionary(Of String, Boolean))
 
@@ -238,9 +239,9 @@ Public Class StateStack
 
     End Sub
 
-    Friend Sub RestoreState(ByVal state As clsGameState)
+    Friend Async Function RestoreState(ByVal state As clsGameState) as Task
 
-        If state Is Nothing Then Exit Sub
+        If state Is Nothing Then Exit Function
 
         With state
 
@@ -322,7 +323,7 @@ Public Class StateStack
                 If .htblEventStates.ContainsKey(ev.Key) Then
                     Dim evs As clsGameState.clsEventState = CType(.htblEventStates(ev.Key), clsGameState.clsEventState)
                     ev.Status = evs.Status
-                    ev.TimerToEndOfEvent = evs.TimerToEndOfEvent
+                    Await (ev.SetTimerToEndOfEvent(evs.TimerToEndOfEvent))
                     ev.iLastSubEventTime = evs.iLastSubEventTime
                     If ev.SubEvents IsNot Nothing AndAlso ev.SubEvents.Length > evs.iLastSubEventIndex Then ev.LastSubEvent = ev.SubEvents(evs.iLastSubEventIndex)
                     RestoreDisplayOnce(ev.AllDescriptions, evs.htblDisplayedDescriptions)
@@ -413,16 +414,16 @@ Public Class StateStack
 
         End With
 
-    End Sub
+    End Function
 
 
     Private stateLast As clsGameState
     Private stateCurrent As clsGameState
 
-    Public Function SetLastState() As Boolean
+    Public Async Function SetLastState() As Task(of Boolean)
         If MyBase.Count > 1 Then
             MyBase.Pop() ' Discard current state
-            RestoreState(CType(MyBase.Peek, clsGameState))
+            Await RestoreState(CType(MyBase.Peek, clsGameState))
             Adventure.eGameState = clsAction.EndGameEnum.Running
             Debug.WriteLine("Popped (" & MyBase.Count & " on stack)")
             Return True
@@ -431,9 +432,10 @@ Public Class StateStack
         End If
     End Function
 
-    Public Sub SetCurrentState()
-        RestoreState(stateCurrent)
-    End Sub
+    ' Never called
+    Public Async Function SetCurrentState() as Task
+        Await RestoreState(stateCurrent)
+    End Function
 
     Public Shadows Sub Clear()
         MyBase.Clear()

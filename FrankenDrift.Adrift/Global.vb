@@ -733,11 +733,11 @@ Public Module SharedModule
     End Function
 
 
-    Public Function ReplaceALRs(ByVal sText As String, Optional ByVal bAutoCapitalise As Boolean = True) As String
+    Public Async Function ReplaceALRs(ByVal sText As String, Optional ByVal bAutoCapitalise As Boolean = True) As Task(of String)
         Try
             If sText = "" Then Return ""
 
-            sText = ReplaceFunctions(sText)
+            sText = Await ReplaceFunctions(sText)
             sText = ReplaceExpressions(sText)
 
             Dim bChanged As Boolean = False
@@ -747,7 +747,7 @@ Public Module SharedModule
                 If sText.Contains(alr.OldText) Then
                     Dim sALR As String = alr.NewText.ToString ' Get it in a variable in case we have DisplayOnce
                     If sText = sALR Then Exit For
-                    sText = sText.Replace(alr.OldText, ReplaceALRs(sALR, False))
+                    sText = sText.Replace(alr.OldText, Await ReplaceALRs(sALR, False))
                 End If
             Next
 
@@ -769,7 +769,7 @@ Public Module SharedModule
                     If sText.Contains(alr.OldText) Then
                         Dim sALR As String = alr.NewText.ToString ' Get it in a variable in case we have DisplayOnce
                         If sText = sALR Then Exit For
-                        sText = sText.Replace(alr.OldText, ReplaceALRs(sALR, False))
+                        sText = sText.Replace(alr.OldText, Await ReplaceALRs(sALR, False))
                     End If
                 Next
             End If
@@ -810,17 +810,19 @@ Public Module SharedModule
         Return Contains(sTextToSearchIn, sTextToFind, True)
     End Function
 
-    Public Function PreviousFunction(ByVal sFunction As String, ByVal sArgs As String) As String
+    Public Async Function PreviousFunction(ByVal sFunction As String, ByVal sArgs As String) As Task(of String)
+        Dim result
         With UserSession
             Dim sNewFunction As String = sFunction.Replace("prev", "")
             Dim PreviousState As clsGameState = CType(.States.Peek, clsGameState) ' Note the previous state
-            .States.RecordState() ' Save where we are now
-            .States.RestoreState(PreviousState) ' Load up the previous state
+            Await .States.RecordState() ' Save where we are now
+            Await .States.RestoreState(PreviousState) ' Load up the previous state
 
-            PreviousFunction = ReplaceFunctions("%" & sNewFunction & "[" & sArgs & "]%")
+            result = Await ReplaceFunctions("%" & sNewFunction & "[" & sArgs & "]%")
 
             .States.Pop() ' Get rid of the 'current' state and load it back as present
         End With
+        Return result
     End Function
 
     ' Chops the last character off a string 
@@ -833,14 +835,14 @@ Public Module SharedModule
     End Function
 
     ' If this is in an expression, we need to replace anything with a quoted value
-    Public Function ReplaceOO(ByVal sText As String, ByVal bExpression As Boolean) As String
+    Public Async Function ReplaceOO(ByVal sText As String, ByVal bExpression As Boolean) As Task(of String)
 
         Dim reIgnore As New System.Text.RegularExpressions.Regex(".*?(?<embeddedexpression><#.*?#>).*?")
         If reIgnore.IsMatch(sText) Then
             Dim sMatch As String = reIgnore.Match(sText).Groups("embeddedexpression").Value
             Dim sGUID As String
             sGUID = ":" & System.Guid.NewGuid.ToString & ":"
-            Dim sReturn As String = ReplaceOO(sText.Replace(sMatch, sGUID), bExpression)
+            Dim sReturn As String = Await ReplaceOO(sText.Replace(sMatch, sGUID), bExpression)
             Return sReturn.Replace(sGUID, sMatch)
         Else
             ' Match anything unless it's between <# ... #> symbols
@@ -853,7 +855,9 @@ Public Module SharedModule
 
                 Dim sMatch As String = re.Match(sText, iStartAt).Value
                 Dim bIntValue As Boolean = False
-                Dim sReplace As String = ReplaceOOProperty(sMatch, bInt:=bIntValue)
+                Dim tup = Await ReplaceOOProperty(sMatch, bInt:=bIntValue)
+                Dim sReplace As String = tup.result
+                bIntValue = tup.bInt
                 Dim iPrevStart As Integer = iStartAt
                 iStartAt = re.Match(sText, iStartAt).Index + sMatch.Length
 
@@ -866,11 +870,11 @@ Public Module SharedModule
 
             End While
 
-            Return ReplaceFunctions(sText, , False)
+            Return Await ReplaceFunctions(sText, , False)
         End If
     End Function
 
-    Private Function ReplaceOOProperty(ByVal sProperty As String, Optional ByVal ob As clsObject = Nothing, Optional ByVal ch As clsCharacter = Nothing, Optional ByVal loc As clsLocation = Nothing, Optional ByVal lst As List(Of clsItemWithProperties) = Nothing, Optional ByVal lstDirs As List(Of DirectionsEnum) = Nothing, Optional ByVal evt As clsEvent = Nothing, Optional sPropertyKey As String = Nothing, Optional ByRef bInt As Boolean = False) As String
+    Private Async Function ReplaceOOProperty(ByVal sProperty As String, Optional ByVal ob As clsObject = Nothing, Optional ByVal ch As clsCharacter = Nothing, Optional ByVal loc As clsLocation = Nothing, Optional ByVal lst As List(Of clsItemWithProperties) = Nothing, Optional ByVal lstDirs As List(Of DirectionsEnum) = Nothing, Optional ByVal evt As clsEvent = Nothing, Optional sPropertyKey As String = Nothing, Optional ByVal bInt As Boolean = False) As Task(of (result as String, bInt as Boolean))
         Dim sFunction As String = sProperty
         Dim sArgs As String = ""
         Dim sRemainder As String = ""
@@ -915,16 +919,16 @@ Public Module SharedModule
                         Next
                     End If
 
-                    Return sResult
+                    Return (sResult, bInt)
 
                 Case "Count"
                     If lst IsNot Nothing Then
-                        Return lst.Count.ToString
+                        Return (lst.Count.ToString, bInt)
                     ElseIf lstDirs IsNot Nothing Then
-                        Return lstDirs.Count.ToString
+                        Return (lstDirs.Count.ToString, bInt)
                     End If
                     bInt = True
-                    Return "0"
+                    Return ("0", bInt)
 
                 Case "Sum"
                     Dim iSum As Integer = 0
@@ -936,7 +940,7 @@ Public Module SharedModule
                         Next
                     End If
                     bInt = True
-                    Return iSum.ToString
+                    Return (iSum.ToString, bInt)
 
                 Case "Description"
                     Dim sResult As String = ""
@@ -955,7 +959,7 @@ Public Module SharedModule
                                 End If
                         End Select
                     Next
-                    Return sResult
+                    Return (sResult, bInt)
 
                 Case "List", "Name"
                     ' List(and) - And separated list - Default
@@ -1019,7 +1023,7 @@ Public Module SharedModule
                         Next
                     End If
                     If sList = "" Then sList = "nothing"
-                    Return sList
+                    Return (sList, bInt)
 
                 Case "Parent"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1037,7 +1041,7 @@ Public Module SharedModule
                     Next
 
                     If sRemainder <> "" Then
-                        Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                        Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
                     End If
 
                 Case "Children"
@@ -1095,7 +1099,7 @@ Public Module SharedModule
                     Next
 
                     If sRemainder <> "" OrElse lstNew.Count > 0 Then
-                        Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                        Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
                     End If
 
                 Case "Contents"
@@ -1125,7 +1129,7 @@ Public Module SharedModule
                         End Select
                     Next
 
-                    Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
 
                 Case "Objects"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1142,7 +1146,7 @@ Public Module SharedModule
                         End Select
                     Next
 
-                    Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
 
                 Case Else
                     If Adventure.htblAllProperties.ContainsKey(sFunction) Then
@@ -1162,7 +1166,7 @@ Public Module SharedModule
                                 Dim bValueOK As Boolean = True
                                 If sArgs <> "" Then
                                     bValueOK = False
-                                    If sArgs.Contains(".") Then sArgs = ReplaceFunctions(sArgs)
+                                    If sArgs.Contains(".") Then sArgs = Await ReplaceFunctions(sArgs)
                                     If sArgs.Contains("+") OrElse sArgs.Contains("-") Then
                                         Dim sArgsNew As String = EvaluateExpression(sArgs)
                                         If sArgsNew IsNot Nothing Then sArgs = sArgsNew
@@ -1246,7 +1250,7 @@ Public Module SharedModule
                                     Dim bValueOK As Boolean = False ' Because this is equiv of arg = (True)
                                     If sArgs <> "" Then
                                         bValueOK = False
-                                        If sArgs.Contains(".") Then sArgs = ReplaceFunctions(sArgs)
+                                        If sArgs.Contains(".") Then sArgs = Await ReplaceFunctions(sArgs)
                                         If sArgs.Contains("+") OrElse sArgs.Contains("-") Then
                                             Dim sArgsNew As String = EvaluateExpression(sArgs)
                                             If sArgsNew IsNot Nothing Then sArgs = sArgsNew
@@ -1287,11 +1291,11 @@ Public Module SharedModule
                         End If
 
                         If sRemainder <> "" OrElse (lstNew.Count > 0 AndAlso Not bIntResult) Then
-                            Return ReplaceOOProperty(sRemainder, lst:=lstNew, sPropertyKey:=sNewPropertyKey, bInt:=bInt)
+                            Return Await ReplaceOOProperty(sRemainder, lst:=lstNew, sPropertyKey:=sNewPropertyKey, bInt:=bInt)
                         ElseIf bIntResult Then
-                            Return iTotal.ToString
+                            Return (iTotal.ToString, bInt)
                         Else
-                            Return sResult
+                            Return (sResult, bInt)
                         End If
                     End If
             End Select
@@ -1299,10 +1303,10 @@ Public Module SharedModule
         ElseIf ob IsNot Nothing Then
             Select Case sFunction
                 Case "Adjective", "Prefix"
-                    Return ob.Prefix
+                    Return (ob.Prefix, bInt)
 
                 Case "Article"
-                    Return ob.Article
+                    Return (ob.Article, bInt)
 
                 Case "Children"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1346,7 +1350,7 @@ Public Module SharedModule
                                 lstNew.Add(oOb)
                             Next
                     End Select
-                    Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
 
                 Case "Contents"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1367,14 +1371,14 @@ Public Module SharedModule
                                 lstNew.Add(oOb)
                             Next
                     End Select
-                    Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
 
                 Case "Count"
                     bInt = True
-                    Return "1"
+                    Return ("1", bInt)
 
                 Case "Description"
-                    Return ob.Description.ToString
+                    Return (ob.Description.ToString, bInt)
 
                 Case "Location"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1382,17 +1386,17 @@ Public Module SharedModule
                         Dim oLoc As clsLocation = Adventure.htblLocations(sLocKey)
                         lstNew.Add(oLoc)
                     Next
-                    Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
 
                 Case "Name", "List"
                     Dim Article As ArticleTypeEnum = ArticleTypeEnum.Definite
                     If sArgs.ToLower.Contains("indefinite") Then Article = ArticleTypeEnum.Indefinite
                     If sArgs.ToLower.Contains("none") Then Article = ArticleTypeEnum.None
 
-                    Return ob.FullName(Article)
+                    Return (ob.FullName(Article), bInt)
 
                 Case "Noun"
-                    Return ob.arlNames(0)
+                    Return (ob.arlNames(0), bInt)
 
                 Case "Parent"
                     Dim sParent As String = ob.Parent
@@ -1402,10 +1406,10 @@ Public Module SharedModule
                     Adventure.htblObjects.TryGetValue(sParent, oParentOb)
                     Adventure.htblCharacters.TryGetValue(sParent, oParentCh)
                     Adventure.htblLocations.TryGetValue(sParent, oParentLoc)
-                    Return ReplaceOOProperty(sRemainder, oParentOb, oParentCh, oParentLoc, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, oParentOb, oParentCh, oParentLoc, bInt:=bInt)
 
                 Case ""
-                    Return ob.Key
+                    Return (ob.Key, bInt)
 
                 Case Else
                     Dim p As clsProperty = Nothing
@@ -1429,11 +1433,11 @@ Public Module SharedModule
                             Case clsProperty.PropertyTypeEnum.ObjectKey
                                 oOb = Adventure.htblObjects(p.Value)
                             Case clsProperty.PropertyTypeEnum.Integer, clsProperty.PropertyTypeEnum.ValueList
-                                Return p.IntData.ToString
+                                Return (p.IntData.ToString, bInt)
                             Case clsProperty.PropertyTypeEnum.SelectionOnly
-                                Return "1"
+                                Return ("1", bInt)
                             Case clsProperty.PropertyTypeEnum.Text, clsProperty.PropertyTypeEnum.StateList
-                                Return p.Value
+                                Return (p.Value, bInt)
                         End Select
                     Else
                         If Adventure.htblObjectProperties.ContainsKey(sFunction) Then
@@ -1441,20 +1445,20 @@ Public Module SharedModule
                             Select Case Adventure.htblObjectProperties(sFunction).Type
                                 Case clsProperty.PropertyTypeEnum.Integer, clsProperty.PropertyTypeEnum.ValueList, clsProperty.PropertyTypeEnum.SelectionOnly
                                     bInt = True
-                                    Return "0"
+                                    Return ("0", bInt)
                             End Select
                         End If
                     End If
                     If sRemainder <> "" Then
-                        Return ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
+                        Return Await ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
                     ElseIf oLoc IsNot Nothing Then
-                        Return oLoc.Key
+                        Return (oLoc.Key, bInt)
                     ElseIf oOb IsNot Nothing Then
-                        Return oOb.Key
+                        Return (oOb.Key, bInt)
                     ElseIf oCh IsNot Nothing Then
-                        Return oCh.Key
+                        Return (oCh.Key, bInt)
                     ElseIf lstNew IsNot Nothing AndAlso lstNew.Count > 0 Then
-                        Return ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
+                        Return Await ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
                     End If
 
             End Select
@@ -1463,23 +1467,24 @@ Public Module SharedModule
             Select Case sFunction
                 Case "Count"
                     bInt = True
-                    Return "1"
+                    Return ("1", bInt)
 
                 Case "Descriptor"
-                    Return ch.Descriptor.ToString
+                    Return (ch.Descriptor.ToString, bInt)
 
                 Case "Description"
-                    Return ch.Description.ToString
+                    Return (ch.Description.ToString, bInt)
 
                 Case "Exits"
                     Dim lstNew As New List(Of DirectionsEnum)
 
                     For d As DirectionsEnum = DirectionsEnum.North To DirectionsEnum.NorthWest
-                        If Adventure.Player.HasRouteInDirection(d, False, Adventure.Player.Location.LocationKey) Then
+                        Dim tup = Await Adventure.Player.HasRouteInDirection(d, False, Adventure.Player.Location.LocationKey)
+                        If tup.result Then
                             lstNew.Add(d)
                         End If
                     Next
-                    Return ReplaceOOProperty(sRemainder, , ch, , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , ch, , , lstNew, bInt:=bInt)
 
                 Case "Held"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1493,13 +1498,13 @@ Public Module SharedModule
                                 lstNew.Add(obHeld)
                             Next
                     End Select
-                    Return ReplaceOOProperty(sRemainder, , ch, , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , ch, , lstNew, bInt:=bInt)
 
                 Case "Location"
                     Dim sLoc As String = ch.Location.LocationKey
                     Dim oLoc As clsLocation = Nothing
                     Adventure.htblLocations.TryGetValue(sLoc, oLoc)
-                    Return ReplaceOOProperty(sRemainder, , , oLoc, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , oLoc, bInt:=bInt)
 
                 Case "Name"
                     Dim bForcePronoun As Boolean = False
@@ -1535,7 +1540,7 @@ Public Module SharedModule
                         bExplicitArticle = True
                     End If
 
-                    Return ch.Name(ePronoun, , , Article, bForcePronoun, bExplicitArticle)
+                    Return (ch.Name(ePronoun, , , Article, bForcePronoun, bExplicitArticle), bInt)
 
                 Case "Parent"
                     Dim sParent As String = ch.Parent
@@ -1545,10 +1550,10 @@ Public Module SharedModule
                     Adventure.htblObjects.TryGetValue(sParent, oParentOb)
                     Adventure.htblCharacters.TryGetValue(sParent, oParentCh)
                     Adventure.htblLocations.TryGetValue(sParent, oParentLoc)
-                    Return ReplaceOOProperty(sRemainder, oParentOb, oParentCh, oParentLoc, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, oParentOb, oParentCh, oParentLoc, bInt:=bInt)
 
                 Case "ProperName"
-                    Return ch.ProperName
+                    Return (ch.ProperName, bInt)
 
                 Case "Worn"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1562,7 +1567,7 @@ Public Module SharedModule
                                 lstNew.Add(obWorn)
                             Next
                     End Select
-                    Return ReplaceOOProperty(sRemainder, , ch, , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , ch, , lstNew, bInt:=bInt)
 
                 Case "WornAndHeld"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1582,10 +1587,10 @@ Public Module SharedModule
                                 lstNew.Add(obHeld)
                             Next
                     End Select
-                    Return ReplaceOOProperty(sRemainder, , ch, , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , ch, , lstNew, bInt:=bInt)
 
                 Case ""
-                    Return ch.Key
+                    Return (ch.Key, bInt)
 
                 Case Else
                     Dim p As clsProperty = Nothing
@@ -1610,32 +1615,32 @@ Public Module SharedModule
                                 oOb = Adventure.htblObjects(p.Value)
                             Case clsProperty.PropertyTypeEnum.Integer, clsProperty.PropertyTypeEnum.ValueList
                                 bInt = True
-                                Return p.IntData.ToString
+                                Return (p.IntData.ToString, bInt)
                             Case clsProperty.PropertyTypeEnum.SelectionOnly
                                 bInt = True
-                                Return "1"
+                                Return ("1", bInt)
                             Case clsProperty.PropertyTypeEnum.Text, clsProperty.PropertyTypeEnum.StateList
-                                Return p.Value
+                                Return (p.Value, bInt)
                         End Select
                     Else
                         If Adventure.htblCharacterProperties.ContainsKey(sFunction) Then
                             ' Ok, item doesn't have property.  Give it a default
                             Select Case Adventure.htblCharacterProperties(sFunction).Type
                                 Case clsProperty.PropertyTypeEnum.Integer, clsProperty.PropertyTypeEnum.ValueList, clsProperty.PropertyTypeEnum.SelectionOnly
-                                    Return "0"
+                                    Return ("0", bInt)
                             End Select
                         End If
                     End If
                     If sRemainder <> "" Then
-                        Return ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
+                        Return Await ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
                     ElseIf oLoc IsNot Nothing Then
-                        Return oLoc.Key
+                        Return (oLoc.Key, bInt)
                     ElseIf oOb IsNot Nothing Then
-                        Return oOb.Key
+                        Return (oOb.Key, bInt)
                     ElseIf oCh IsNot Nothing Then
-                        Return oCh.Key
+                        Return (oCh.Key, bInt)
                     ElseIf lstNew IsNot Nothing AndAlso lstNew.Count > 0 Then
-                        Return ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
+                        Return Await ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
                     End If
 
             End Select
@@ -1647,7 +1652,7 @@ Public Module SharedModule
                     For Each chLoc As clsCharacter In loc.CharactersVisibleAtLocation.Values
                         lstNew.Add(chLoc)
                     Next
-                    Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
 
                 Case "Contents"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1668,16 +1673,16 @@ Public Module SharedModule
                                 lstNew.Add(oOb)
                             Next
                     End Select
-                    Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
 
                 Case "Count"
                     bInt = True
-                    Return "1"
+                    Return ("1", bInt)
 
                 Case "Description", LONGLOCATIONDESCRIPTION
                     Dim sResult As String = loc.ViewLocation
                     If sResult = "" Then sResult = "There is nothing of interest here."
-                    Return sResult
+                    Return (sResult, bInt)
 
                 Case "Exits"
                     Dim lstNew As New List(Of DirectionsEnum)
@@ -1687,7 +1692,7 @@ Public Module SharedModule
                             lstNew.Add(d)
                         End If
                     Next
-                    Return ReplaceOOProperty(sRemainder, , ch, , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , ch, , , lstNew, bInt:=bInt)
 
                 Case "LocationTo"
                     Dim lstNew As New List(Of clsItemWithProperties)
@@ -1713,20 +1718,20 @@ Public Module SharedModule
                         locTo = CType(lstNew(0), clsLocation)
                         lstNew = Nothing
                     End If
-                    Return ReplaceOOProperty(sRemainder, , , locTo, lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , locTo, lstNew, bInt:=bInt)
 
                 Case "Name", SHORTLOCATIONDESCRIPTION
-                    Return loc.ShortDescription.ToString
+                    Return (loc.ShortDescription.ToString, bInt)
 
                 Case "Objects"
                     Dim lstNew As New List(Of clsItemWithProperties)
                     For Each obLoc As clsObject In loc.ObjectsInLocation.Values
                         lstNew.Add(obLoc)
                     Next
-                    Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
 
                 Case ""
-                    Return loc.Key
+                    Return (loc.Key, bInt)
 
                 Case Else
                     Dim p As clsProperty = Nothing
@@ -1751,32 +1756,32 @@ Public Module SharedModule
                                 oOb = Adventure.htblObjects(p.Value)
                             Case clsProperty.PropertyTypeEnum.Integer, clsProperty.PropertyTypeEnum.ValueList
                                 bInt = True
-                                Return p.IntData.ToString
+                                Return (p.IntData.ToString, bInt)
                             Case clsProperty.PropertyTypeEnum.SelectionOnly
                                 bInt = True
-                                Return "1"
+                                Return ("1", bInt)
                             Case clsProperty.PropertyTypeEnum.Text, clsProperty.PropertyTypeEnum.StateList
-                                Return p.Value
+                                Return (p.Value, bInt)
                         End Select
                     Else
                         If Adventure.htblLocationProperties.ContainsKey(sFunction) Then
                             ' Ok, item doesn't have property.  Give it a default
                             Select Case Adventure.htblLocationProperties(sFunction).Type
                                 Case clsProperty.PropertyTypeEnum.Integer, clsProperty.PropertyTypeEnum.ValueList, clsProperty.PropertyTypeEnum.SelectionOnly
-                                    Return "0"
+                                    Return ("0", bInt)
                             End Select
                         End If
                     End If
                     If sRemainder <> "" Then
-                        Return ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
+                        Return Await ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
                     ElseIf oLoc IsNot Nothing Then
-                        Return oLoc.Key
+                        Return (oLoc.Key, bInt)
                     ElseIf oOb IsNot Nothing Then
-                        Return oOb.Key
+                        Return (oOb.Key, bInt)
                     ElseIf oCh IsNot Nothing Then
-                        Return oCh.Key
+                        Return (oCh.Key, bInt)
                     ElseIf lstNew.Count > 0 Then
-                        Return ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
+                        Return Await ReplaceOOProperty(sRemainder, oOb, oCh, oLoc, lstNew, bInt:=bInt)
                     End If
 
             End Select
@@ -1784,11 +1789,11 @@ Public Module SharedModule
         ElseIf evt IsNot Nothing Then
             Select Case sFunction
                 Case "Length"
-                    Return evt.Length.Value.ToString
+                    Return (evt.Length.Value.ToString, bInt)
                 Case "Position"
-                    Return evt.TimerFromStartOfEvent.ToString
+                    Return (evt.TimerFromStartOfEvent.ToString, bInt)
                 Case ""
-                    Return evt.Key
+                    Return (evt.Key, bInt)
 
             End Select
 
@@ -1799,7 +1804,7 @@ Public Module SharedModule
                     Dim oItem As clsItemWithProperties = CType(Adventure.dictAllItems(sItem), clsItemWithProperties)
                     lstNew.Add(oItem)
                 Next
-                Return ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
+                Return Await ReplaceOOProperty(sRemainder, , , , lstNew, bInt:=bInt)
             Else
                 If Adventure.AllKeys.Contains(sFunction) Then
                     Dim lstNew As List(Of clsItemWithProperties) = Nothing
@@ -1820,20 +1825,20 @@ Public Module SharedModule
                         Next
                     End If
 
-                    Return ReplaceOOProperty(sRemainder, ob, ch, loc, lstNew, , evt, bInt:=bInt)
+                    Return Await ReplaceOOProperty(sRemainder, ob, ch, loc, lstNew, , evt, bInt:=bInt)
                 Else
                     For Each d As DirectionsEnum In [Enum].GetValues(GetType(DirectionsEnum))
                         If d.ToString = sFunction Then
                             Dim NewDir As New List(Of DirectionsEnum)
                             NewDir.Add(d)
-                            Return ReplaceOOProperty(sRemainder, lstDirs:=NewDir, bInt:=bInt)
+                            Return Await ReplaceOOProperty(sRemainder, lstDirs:=NewDir, bInt:=bInt)
                         End If
                     Next
                 End If
             End If
         End If
 
-        Return "#*!~#"
+        Return ("#*!~#", bInt)
 
     End Function
 
@@ -1867,7 +1872,7 @@ Public Module SharedModule
     End Function
 
 
-    Private Sub EvaluateUDF(ByVal udf As clsUserFunction, ByRef sText As String)
+    Private Async Function EvaluateUDF(ByVal udf As clsUserFunction, ByVal sText As String) as Task(of String)
         ' This will need to be a bit more sophisticated once we have arguments...
         Dim re As New System.Text.RegularExpressions.Regex("%" & udf.Name & "(\[.*?\])?%")
 
@@ -1878,7 +1883,7 @@ Public Module SharedModule
             For Each d As SingleDescription In udf.Output
                 If d.Description.Contains("%" & udf.Name & If(udf.Arguments.Count = 0, "%", "[")) Then
                     ErrMsg("Recursive User Defined Function - " & udf.Name)
-                    Exit Sub
+                    Exit Function
                 End If
             Next
 
@@ -1897,7 +1902,7 @@ Public Module SharedModule
                 Dim sArg As List(Of String) = SplitArgs(sArgs)
                 Dim i As Integer = 0
                 For Each arg As clsUserFunction.Argument In udf.Arguments
-                    Dim sEvaluatedArg As String = ReplaceFunctions(sArg(i))
+                    Dim sEvaluatedArg As String = Await ReplaceFunctions(sArg(i))
 
                     If sEvaluatedArg.Contains("|") Then ' Means it evaluated to multiple items                            
                         ' Depending on arg type, create an objects parameter, and set the refs
@@ -1940,12 +1945,13 @@ Public Module SharedModule
             Dim sFunctionResult As String = dOut.ToString
             ' Restore Refs
             UserSession.NewReferences = refsCopy
-            sText = ReplaceFunctions(re.Replace(sText, sFunctionResult, 1))
+            sText = Await ReplaceFunctions(re.Replace(sText, sFunctionResult, 1))
         End If
+        Return sText
 
-    End Sub
+    End Function
 
-    Public Function ReplaceFunctions(ByVal sText As String, Optional ByVal bExpression As Boolean = False, Optional ByVal bAllowOO As Boolean = True) As String
+    Public Async Function ReplaceFunctions(ByVal sText As String, Optional ByVal bExpression As Boolean = False, Optional ByVal bAllowOO As Boolean = True) As Task(of String)
         Try
             Dim dictGUIDs As New Dictionary(Of String, String)
             While sText.Contains("<#")
@@ -1958,7 +1964,7 @@ Public Module SharedModule
             End While
 
             For Each udf As clsUserFunction In Adventure.htblUDFs.Values
-                EvaluateUDF(udf, sText)
+                Await EvaluateUDF(udf, sText)
             Next
 
             If sInstr(sText, "%") > 0 Then
@@ -2218,7 +2224,7 @@ Public Module SharedModule
                                     Else
                                         Dim varIndex As New clsVariable
                                         varIndex.Type = clsVariable.VariableTypeEnum.Numeric
-                                        varIndex.SetToExpression(sIndex)
+                                        Await varIndex.SetToExpression(sIndex)
                                         iIndex = varIndex.IntValue
                                     End If
                                     If var.Type = clsVariable.VariableTypeEnum.Numeric Then
@@ -2260,7 +2266,7 @@ Public Module SharedModule
 
                             If iArgsLength > 0 OrElse sFunction.ToLower = "sum" Then
                                 Dim sOldArgs As String = sArgs
-                                sArgs = ReplaceFunctions(sArgs)
+                                sArgs = Await ReplaceFunctions(sArgs)
                                 sText = sText.Substring(0, iMatchLoc - 1) & Replace(sText, sOldArgs, sArgs, iMatchLoc, 1)
 
                                 If sInstr(sText.ToLower, "%" & sFunction & "[" & sArgs.ToLower & "]%") > 0 Then
@@ -2500,9 +2506,9 @@ Public Module SharedModule
                                                 var.Type = clsVariable.VariableTypeEnum.Text
                                                 Select Case MsgBox(sKeys(0) & vbCrLf & vbCrLf & "Yes for " & sKeys(1) & ", No for " & sKeys(2) & " (dialog box to be improved!)", MsgBoxStyle.YesNo)
                                                     Case MsgBoxResult.Yes
-                                                        var.SetToExpression(sKeys(1))
+                                                        Await var.SetToExpression(sKeys(1))
                                                     Case MsgBoxResult.No
-                                                        var.SetToExpression(sKeys(2))
+                                                        Await var.SetToExpression(sKeys(2))
                                                 End Select
                                                 sResult = var.StringValue
                                                 If bExpression Then sResult = """" & sResult & """"
@@ -2523,7 +2529,7 @@ Public Module SharedModule
                                         Case "PrevListObjectsOn".ToLower
                                             ' Maintain a 'last turn' state
                                             ' Call ListObjectsOn on this state
-                                            sResult = PreviousFunction(sFunction, sArgs)
+                                            sResult = Await PreviousFunction(sFunction, sArgs)
 
                                         Case "PrevParentOf".ToLower
                                             ' Get rid of PrevParent, and do the same as above
@@ -2654,7 +2660,7 @@ Public Module SharedModule
                 Dim sPrev As String
                 Do
                     sPrev = sText
-                    sText = ReplaceOO(sText, bExpression)
+                    sText = Await ReplaceOO(sText, bExpression)
                 Loop While sText <> sPrev
             End If
 

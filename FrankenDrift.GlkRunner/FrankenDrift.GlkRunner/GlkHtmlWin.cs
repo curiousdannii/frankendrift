@@ -154,7 +154,7 @@ namespace FrankenDrift.GlkRunner
                         return result;
                     }
                 }
-                else MainSession.Instance!.ProcessEvent(ev);
+                else await MainSession.Instance!.ProcessEvent(ev);
             }
         }
 
@@ -173,7 +173,7 @@ namespace FrankenDrift.GlkRunner
                     result = ev.val1;
                     break;
                 }
-                else MainSession.Instance!.ProcessEvent(ev);
+                else await MainSession.Instance!.ProcessEvent(ev);
             }
             IsWaiting = false;
             return result;

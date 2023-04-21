@@ -457,7 +457,7 @@ Public Class clsVariable
         lValues.RemoveAt(iIndex)
     End Function
 
-    Public Sub SetToExpression(ByVal sExpression As String, Optional ByVal iIndex As Integer = 1, Optional ByVal bThrowExceptionOnBadExpression As Boolean = False)
+    Public Async Function SetToExpression(ByVal sExpression As String, Optional ByVal iIndex As Integer = 1, Optional ByVal bThrowExceptionOnBadExpression As Boolean = False) as Task
         Try
             sExpression = sExpression.Replace("%Loop%", iIndex.ToString)
             sExpression = ReplaceFunctions(sExpression, True)
@@ -489,7 +489,7 @@ Public Class clsVariable
 
             Dim n As Integer
 
-            If iToken = 0 Then Exit Sub
+            If iToken = 0 Then Exit Function
 
             ' Set initial tokens to normal ones
             For n = 0 To iToken - 1
@@ -588,19 +588,19 @@ Public Class clsVariable
                                     .Value = sRight(.Token, Len(.Token) - 3)
                                     .Token = "expr"
                                 ElseIf sLeft(.Token, 3) = "prv" Then
-                                    .Value = ReplaceFunctions(.Token.Substring(4))
+                                    .Value = Await ReplaceFunctions(.Token.Substring(4))
                                     .Token = "expr"
                                 ElseIf sLeft(.Token, 3) = "pin" Then
-                                    .Value = ReplaceFunctions(.Token.Substring(4))
+                                    .Value = Await ReplaceFunctions(.Token.Substring(4))
                                     .Token = "expr"
                                 ElseIf sLeft(.Token, 3) = "pch" Then
-                                    .Value = ReplaceFunctions(.Token.Substring(4))
+                                    .Value = Await ReplaceFunctions(.Token.Substring(4))
                                     .Token = "expr"
                                 ElseIf sLeft(.Token, 3) = "ref" Then
-                                    .Value = ReplaceFunctions(.Token.Substring(4))
+                                    .Value = Await ReplaceFunctions(.Token.Substring(4))
                                     .Token = "expr"
                                 ElseIf sLeft(.Token, 4) = "fun-" Then
-                                    .Value = ReplaceFunctions(.Token.Substring(4))
+                                    .Value = Await ReplaceFunctions(.Token.Substring(4))
                                     .Token = "expr"
                                 Else
                                     Throw New Exception("Bad token: " & .Token)
@@ -1024,7 +1024,7 @@ Public Class clsVariable
                                 Else
                                     ErrMsg("Bad Expression: " & sExpression)
                                 End If
-                                Exit Sub
+                                Exit Function
                             End If
                         End If
                         badexp = True
@@ -1049,7 +1049,7 @@ nxt:
             If bThrowExceptionOnBadExpression Then Throw New Exception("Error in SetToExpression for variable " & Me.Name, ex)
         End Try
 
-    End Sub
+    End Function
 
     Private Sub addtoken(ByVal tokenv As String, ByVal value As String, ByVal left As Integer, ByVal right As Integer)
 
